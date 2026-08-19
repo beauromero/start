@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>start</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23a78bfa'/><text x='50' y='72' font-size='64' text-anchor='middle' font-family='sans-serif' font-weight='900' fill='%2314161b'>s</text></svg>">
+  <script>
+    // Apply theme/layout/density/mode before first paint to avoid a flash of the
+    // wrong look. Also migrates the old combined theme values (bold-tight,
+    // trello-h) into the split theme + layout + density settings.
+    (function () {
+      var ls = localStorage;
+      var theme = ls.getItem("startpage:theme") || "bold";
+      var layout = ls.getItem("startpage:layout");
+      var density = ls.getItem("startpage:density");
+      if (theme === "bold-tight") { theme = "bold"; density = density || "compact"; }
+      if (theme === "trello") { layout = layout || "columns"; }
+      if (theme === "trello-h") { theme = "trello"; layout = layout || "rows"; }
+      layout = layout || "vertical";
+      density = density || "comfortable";
+      ls.setItem("startpage:theme", theme);
+      ls.setItem("startpage:layout", layout);
+      ls.setItem("startpage:density", density);
+      var el = document.documentElement;
+      el.dataset.theme = theme;
+      el.dataset.layout = layout;
+      el.dataset.density = density;
+      var mode = ls.getItem("startpage:mode") || "system";
+      el.dataset.mode = mode === "system"
+        ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
+        : mode;
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@200;400;500;600&family=Playfair+Display:ital,wght@0,500;0,700;1,500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <input id="filter" type="search" placeholder="Type / to filter, Enter to open" autocomplete="off" spellcheck="false">
+    <div class="topbar-actions">
+      <span id="sync-status" class="sync-warn" hidden>⚠︎ sync</span>
+      <button id="add-group" class="btn" type="button">+ Group</button>
+      <button id="bulk-add" class="btn btn-quiet" type="button">Bulk</button>
+      <button id="style-btn" class="btn btn-quiet" type="button" title="Theme, layout, density">Style</button>
+      <button id="mode-toggle" class="btn btn-quiet" type="button" title="Appearance"></button>
+      <button id="export" class="btn btn-quiet" type="button">Export</button>
+      <button id="import" class="btn btn-quiet" type="button">Import</button>
+      <input id="import-file" type="file" accept="application/json,.json" hidden>
+    </div>
+  </header>
+
+  <div id="momentum-hero" class="momentum-hero" hidden>
+    <div id="momentum-clock"></div>
+    <div id="momentum-greeting"></div>
+  </div>
+
+  <main id="board" class="board"></main>
+
+  <dialog id="link-dialog">
+    <form id="link-form" method="dialog">
+      <h2 id="link-dialog-title">Add link</h2>
+      <label>Title
+        <input name="title" type="text" required autocomplete="off" spellcheck="false">
+      </label>
+      <label>URL
+        <input name="url" type="text" required autocomplete="off" spellcheck="false"
+               placeholder="https://…">
+      </label>
+      <label class="check-label">
+        <input name="customIcon" type="checkbox"> Custom icon (instead of site favicon)
+      </label>
+      <div class="icon-fields" hidden>
+        <label>Icon text (emoji or 1–2 letters)
+          <input name="glyph" type="text" maxlength="4" autocomplete="off" spellcheck="false"
+                 placeholder="🐶 or UB">
+        </label>
+        <label>Icon color
+          <div class="swatch-row" id="icon-swatches"></div>
+        </label>
+        <input name="iconColor" type="color" value="#a78bfa" class="color-input">
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-quiet" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="bulk-dialog">
+    <form id="bulk-form" method="dialog">
+      <h2>Bulk add links</h2>
+      <p class="hint">One URL per line. A line that isn't a URL starts a group — it's created,
+        or matched by name if it already exists. URLs before any group line go to “Imported”.
+        Titles are guessed from the URL; edit them after.</p>
+      <textarea name="text" rows="10" spellcheck="false"
+                placeholder="Unwind&#10;https://unwindbehavior.com/&#10;https://supabase.com/dashboard/…"></textarea>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-quiet" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn">Add</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="style-dialog">
+    <form method="dialog">
+      <h2>Style</h2>
+      <label>Theme
+        <select id="theme-select">
+          <option value="bold">Bold</option>
+          <option value="trello">Trello</option>
+          <option value="minimal">Minimal</option>
+          <option value="editorial">Editorial</option>
+          <option value="momentum">Momentum</option>
+        </select>
+      </label>
+      <label>Layout
+        <select id="layout-select">
+          <option value="vertical">Vertical (stacked sections)</option>
+          <option value="columns">Columns (Trello-style board)</option>
+          <option value="rows">Rows (cards scroll sideways)</option>
+          <option value="grid">Grid (masonry panels)</option>
+        </select>
+      </label>
+      <label>Density
+        <select id="density-select">
+          <option value="comfortable">Comfortable</option>
+          <option value="compact">Compact</option>
+        </select>
+      </label>
+      <div class="dialog-actions">
+        <button type="submit" class="btn">Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="color-dialog">
+    <form id="color-form" method="dialog">
+      <h2>Group color</h2>
+      <div class="swatch-row" id="group-swatches"></div>
+      <div class="color-dialog-row">
+        <input id="group-color-custom" type="color" class="color-input" title="Custom color">
+        <button type="button" class="btn btn-quiet" data-action="auto">Auto</button>
+        <button type="button" class="btn btn-quiet" data-action="cancel">Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

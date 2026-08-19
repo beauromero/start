@@ -1,0 +1,12 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "startpage",
+	"pages_build_output_dir": "./public",
+	"compatibility_date": "2026-08-01",
+	"kv_namespaces": [
+		{
+			"binding": "LINKS",
+			"id": "4d2e4f9b13d946cdbf796c62da943bdf"
+		}
+	]
+}

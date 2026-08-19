@@ -1,0 +1,7 @@
+node_modules/
+.wrangler/
+.dev.vars
+.gstack/
+.sync-secret.txt
+.env
+kv-backup-*.json
