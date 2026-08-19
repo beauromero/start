@@ -26,6 +26,8 @@
       el.dataset.theme = theme;
       el.dataset.layout = layout;
       el.dataset.density = density;
+      el.dataset.addlink = ls.getItem("startpage:addlink") === "hidden" ? "hidden" : "shown";
+      el.dataset.search = ls.getItem("startpage:search") === "hidden" ? "hidden" : "shown";
       var mode = ls.getItem("startpage:mode") || "system";
       el.dataset.mode = mode === "system"
         ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark")
@@ -42,20 +44,60 @@
     <input id="filter" type="search" placeholder="Type / to filter, Enter to open" autocomplete="off" spellcheck="false">
     <div class="topbar-actions">
       <span id="sync-status" class="sync-warn" hidden>⚠︎ sync</span>
-      <button id="add-group" class="btn" type="button">+ Group</button>
-      <button id="bulk-add" class="btn btn-quiet" type="button">Bulk</button>
-      <button id="style-btn" class="btn btn-quiet" type="button" title="Theme, layout, density">Style</button>
-      <button id="mode-toggle" class="btn btn-quiet" type="button" title="Appearance"></button>
-      <button id="export" class="btn btn-quiet" type="button">Export</button>
-      <button id="import" class="btn btn-quiet" type="button">Import</button>
-      <input id="import-file" type="file" accept="application/json,.json" hidden>
+      <div class="menu-wrap">
+        <button id="topbar-menu-btn" class="btn btn-quiet" type="button" title="More options">⋯</button>
+        <div id="topbar-menu" class="menu" hidden>
+          <button id="add-group" type="button">Add group</button>
+          <button id="bulk-add" type="button" title="Paste URLs, group lists, or an open-tab dump">Bulk add links</button>
+          <button id="bulk-edit" type="button" title="Edit every link in one screen">Edit all links</button>
+          <hr>
+          <button id="style-btn" type="button" title="Theme, layout, density">Style</button>
+          <button id="mode-toggle" type="button" title="Cycles system → light → dark"></button>
+          <button id="search-toggle" type="button" title="Press / to search while hidden"></button>
+          <hr>
+          <button id="export" type="button">Export</button>
+          <button id="import" type="button" title="JSON backup or Chrome bookmarks export (.html)">Import</button>
+        </div>
+      </div>
+      <input id="import-file" type="file" accept="application/json,.json,text/html,.html,.htm" hidden>
     </div>
   </header>
 
   <div id="momentum-hero" class="momentum-hero" hidden>
     <div id="momentum-clock"></div>
     <div id="momentum-greeting"></div>
+    <div id="momentum-quote" hidden></div>
+    <div class="momentum-controls">
+      <button id="momentum-shuffle" class="momentum-btn" type="button" title="New background">↻</button>
+      <button id="momentum-pin" class="momentum-btn" type="button">📌</button>
+      <button id="momentum-settings" class="momentum-btn" type="button" title="Momentum settings">⚙</button>
+    </div>
   </div>
+
+  <dialog id="momentum-dialog">
+    <form method="dialog">
+      <h2>Momentum</h2>
+      <label>Background photo</label>
+      <div id="momentum-thumbs" class="momentum-thumbs"></div>
+      <p class="hint">Click a photo to show it now. ★ favorites are synced — when you
+        have any, the daily rotation and shuffle only use them, on every device.</p>
+      <button type="button" class="btn btn-quiet" id="momentum-server-pin"></button>
+      <p class="hint">A synced pin shows one photo everywhere; the 📌 chip pins
+        per device and wins on that device.</p>
+      <label class="check-label">
+        <input id="momentum-show-clock" type="checkbox" checked> Show clock
+      </label>
+      <label class="check-label">
+        <input id="momentum-show-greeting" type="checkbox" checked> Show greeting
+      </label>
+      <label class="check-label">
+        <input id="momentum-show-quote" type="checkbox" checked> Show daily quote
+      </label>
+      <div class="dialog-actions">
+        <button type="submit" class="btn">Done</button>
+      </div>
+    </form>
+  </dialog>
 
   <main id="board" class="board"></main>
 
@@ -73,8 +115,11 @@
         <input name="customIcon" type="checkbox"> Custom icon (instead of site favicon)
       </label>
       <div class="icon-fields" hidden>
-        <label>Icon text (emoji or 1–2 letters)
-          <input name="glyph" type="text" maxlength="4" autocomplete="off" spellcheck="false"
+        <label>Icon
+          <div class="icon-grid" id="icon-grid"></div>
+        </label>
+        <label>…or emoji / 1–2 letters
+          <input name="glyph" type="text" maxlength="24" autocomplete="off" spellcheck="false"
                  placeholder="🐶 or UB">
         </label>
         <label>Icon color
@@ -83,6 +128,7 @@
         <input name="iconColor" type="color" value="#a78bfa" class="color-input">
       </div>
       <div class="dialog-actions">
+        <button type="button" class="btn btn-quiet btn-danger" data-action="delete" hidden>Delete</button>
         <button type="button" class="btn btn-quiet" data-action="cancel">Cancel</button>
         <button type="submit" class="btn">Save</button>
       </div>
@@ -92,14 +138,62 @@
   <dialog id="bulk-dialog">
     <form id="bulk-form" method="dialog">
       <h2>Bulk add links</h2>
-      <p class="hint">One URL per line. A line that isn't a URL starts a group — it's created,
-        or matched by name if it already exists. URLs before any group line go to “Imported”.
-        Titles are guessed from the URL; edit them after.</p>
+      <p class="hint">One link per line — bare URLs, <code>[Title](url)</code>,
+        “Title — URL”, or an open-tab dump from a copy-tabs extension. A line that
+        isn't a URL starts a group for the links after it (created, or matched by
+        name); when every URL has its own line above it, those lines are read as
+        titles instead. You'll choose and route everything on the next screen.</p>
       <textarea name="text" rows="10" spellcheck="false"
                 placeholder="Unwind&#10;https://unwindbehavior.com/&#10;https://supabase.com/dashboard/…"></textarea>
       <div class="dialog-actions">
         <button type="button" class="btn btn-quiet" data-action="cancel">Cancel</button>
-        <button type="submit" class="btn">Add</button>
+        <button type="submit" class="btn">Next</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="edit-dialog">
+    <form id="edit-form" method="dialog">
+      <h2>Bulk edit</h2>
+      <p class="hint">Change titles, URLs, icons, and groups across the whole board,
+        then save once. Empty icon = automatic favicon; emoji, 1–2 letters, or a
+        built-in icon token like <code>:star:</code> work. Moved links land at the end
+        of their new group.</p>
+      <input id="edit-filter" type="search" placeholder="Filter links…" autocomplete="off" spellcheck="false">
+      <div class="edit-cols" aria-hidden="true">
+        <span class="edit-col-icon">Icon</span><span>Title</span><span>URL</span><span>Group</span>
+      </div>
+      <div id="edit-rows" class="edit-rows"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-quiet" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn" id="edit-submit" disabled>Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="bm-dialog">
+    <form id="bm-form" method="dialog">
+      <h2>Import bookmarks</h2>
+      <p class="hint">Check the bookmarks you want. Each folder gets a destination —
+        a new group named after it, or any existing group. Nothing is replaced;
+        links are added. (Export from Chrome: bookmarks manager → ⋮ → Export bookmarks.)</p>
+      <div id="bm-tree" class="bm-tree"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-quiet" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn" id="bm-submit" disabled>Import</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="pick-dialog">
+    <form id="pick-form" method="dialog">
+      <h2>Bulk add links</h2>
+      <p class="hint">Check the links you want and pick a destination group for each.
+        Nothing is replaced; links are added.</p>
+      <div id="pick-tree" class="bm-tree"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-quiet" data-action="cancel">Cancel</button>
+        <button type="submit" class="btn" id="pick-submit" disabled>Add</button>
       </div>
     </form>
   </dialog>
@@ -127,9 +221,20 @@
       <label>Density
         <select id="density-select">
           <option value="comfortable">Comfortable</option>
+          <option value="medium">Medium</option>
           <option value="compact">Compact</option>
         </select>
       </label>
+      <label class="check-label">
+        <input id="addlink-toggle" type="checkbox" checked>
+        Show “+ Add link” with the links
+      </label>
+      <p class="hint">When hidden, each group’s ⋯ menu still has Add link.</p>
+      <div class="default-view-row">
+        <button type="button" class="btn btn-quiet" id="save-default"
+                title="Store this style in the synced data so any device can load it">Save as default view</button>
+        <button type="button" class="btn btn-quiet" id="load-default">Load default view</button>
+      </div>
       <div class="dialog-actions">
         <button type="submit" class="btn">Done</button>
       </div>

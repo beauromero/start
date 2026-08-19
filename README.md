@@ -20,13 +20,26 @@ page, and edits made anywhere show up everywhere.
 - **Instant loads** — renders from a localStorage cache first, fetches KV in the
   background; keeps working offline and pushes when it can
 - **Themes** — Bold, Trello, Minimal, Editorial (serif), and Momentum (daily-rotating
-  photo background with clock + greeting)
+  photo background with clock + greeting, plus a settings panel: shuffle or pin the
+  photo per device or across every device, star favorite photos to rotate through
+  just those, and show/hide the clock, greeting, and a daily inspirational quote)
 - **Layouts** — stacked sections, Trello-style columns, full-width rows, or a
-  Toby-style masonry grid; plus comfortable/compact density and light/dark/system mode
+  Toby-style masonry grid; plus comfortable/medium/compact density and
+  light/dark/system mode. A "default view" can be saved into the synced data and
+  loaded on any other device with one click
 - **Customization** — per-group accent colors, custom link icons (emoji or letter
   tiles), automatic favicons with fallback
-- **Bulk add** — paste a list of URLs and group names, get organized links
+- **Bulk add** — paste URLs and group names, markdown links, "Title — URL" lines,
+  or an open-tab dump from a copy-tabs extension, then pick exactly which links to
+  keep and a destination group for each
+- **Drag links in** — drop a bookmark-bar entry, a link from any page, or the
+  address-bar padlock straight onto a group, right where you want it
+- **Bulk edit** — one screen with every link's title, URL, icon, and group editable
+  inline; change anything anywhere and save once
 - **Import/Export** — one-click JSON backup and restore
+- **Chrome bookmark import** — feed it a bookmarks export (`chrome://bookmarks` → ⋮ →
+  Export bookmarks) and pick exactly which bookmarks to bring in, folder by folder,
+  with each folder routed to a new or existing group
 
 ## How it works
 
@@ -122,7 +135,7 @@ Redeploying after any change is just `npx wrangler pages deploy ./public`.
   you, add the same secret check to `onRequestGet` in `functions/api/links.js`, or put
   [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
   in front of the whole project.
-- The **Export** button downloads a full JSON backup; **Import** restores one.
+- **Export** (in the topbar ⋯ menu) downloads a full JSON backup; **Import** restores one.
 
 ## License
 

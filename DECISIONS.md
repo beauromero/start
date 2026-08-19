@@ -64,8 +64,8 @@ One JSON blob under KV key `links:v1`:
     sideways-scrolling board), rows (full-width rows, cards scroll sideways), grid
     (Toby-style masonry panels via CSS multi-columns + `break-inside: avoid`). Every layout
     except vertical wraps groups in `--panel`-colored panels.
-  - *Density*: comfortable | compact. Compact scales group headers (`--density-scale`),
-    shrinks cards/icons/gaps via `--card-min`/`--cards-gap` tokens.
+  - *Density*: comfortable | medium | compact. The tighter steps scale group headers
+    (`--density-scale`) and shrink cards/icons/gaps via `--card-min`/`--cards-gap` tokens.
   - Legacy combined values (`bold-tight`, `trello-h`) are migrated by the head script into
     theme + layout + density on first load.
 - **Group color.** Optional `color` (hex) on a group; absent means the old accent rotation.
@@ -85,6 +85,183 @@ One JSON blob under KV key `links:v1`:
   Chrome's drag-image capture), so the layout shows the true post-drop arrangement.
 - **Sync indicator.** No always-on status dot; a "⚠︎ sync" chip appears only when a push or
   pull fails (hover for the reason). Healthy sync is invisible.
+
+## Chrome bookmark import (added 2026-08-19)
+
+- **One Import button, routed by file type.** The existing topbar Import accepts both our
+  JSON backups and browser bookmark exports (`.html`, or any file starting with `<`). JSON
+  keeps the replace-everything flow; bookmark HTML opens a selective, additive dialog —
+  existing links are never touched.
+- **No extension, no API.** Web pages can't read Chrome's bookmarks; the user exports the
+  Netscape-format HTML (`chrome://bookmarks` → ⋮ → Export bookmarks). Firefox/Safari/Edge
+  exports use the same format and work too.
+- **Parsing.** `DOMParser` over the export; each `<DT>` holds either an `<H3>` folder (with
+  its child `<DL>` inside the same never-closed `<DT>` — a sibling `<DL>` is also handled
+  for stricter exporters) or an `<A>` link. Only `http(s)` URLs survive (drops bookmarklets
+  and `chrome://` pages). Untitled links get `titleForUrl()` guesses.
+- **Selection UI.** The folder tree is flattened to one section per non-empty folder, in
+  document order, headed by its full path ("Bookmarks bar / Dev"). Everything starts
+  unchecked — the point is choosing, not bulk-dumping. Each section has a tri-state folder
+  checkbox and a destination select: a new group named after the folder (default), or any
+  existing group. A group whose name matches the folder is pre-selected for merging.
+- **Dupes.** Links whose URL already exists anywhere on the board are marked "already
+  added" and skipped by the folder checkbox, but stay individually checkable (you may want
+  the same link in a second group). On import, URLs already present in the destination
+  group are silently skipped.
+
+## Bulk add links, reworked (2026-08-19)
+
+- **One flow for pasted lists and open tabs.** A separate "Import open tabs" entry
+  existed briefly, but it was the same user feature as bulk add, so they merged:
+  "Bulk add links" parses everything (group + URL lists, bare/scheme-less URLs,
+  markdown `[Title](url)`, "Title — URL" lines, copy-tabs dumps) and routes it through
+  a picker instead of adding immediately. Web pages can't enumerate the browser's
+  tabs — no web API exposes that, `chrome.tabs` is extension-only — so tab import
+  stays paste-driven (copy-tabs extension, or multi-select tabs → right-click → copy
+  where the browser offers it).
+- **Group lines vs. title lines.** A line that isn't a URL still starts a group for
+  the links after it (the original syntax). Exception: when plain lines and URL lines
+  alternate one-to-one — exactly the `Title\nURL` shape copy-tabs tools emit — plain
+  lines are read as titles instead. The ambiguity is survivable because the picker
+  shows the interpretation before anything is added.
+- **Picker: checkbox + destination group per link.** Non-duplicate links start
+  *checked* (a paste is already a choice; the bookmark import starts unchecked because
+  there the point is culling a big export). Row selects default to the link's pasted
+  group — matched case-insensitively to an existing group, else a "new group" option —
+  falling back to "Imported". A sticky header has a tri-state select-all (skips
+  already-added links) and a "Set every group to…" stamp that applies to all rows.
+- **Dupes.** URLs already anywhere on the board show "already added"; URLs already in
+  the chosen destination group are silently skipped on add; duplicate URLs within one
+  paste collapse to the first; duplicate titles within a group get " 2", " 3" suffixes
+  as before.
+
+## Momentum background controls (added 2026-08-19)
+
+- The photo already rotated daily (day index into the curated list), but there was no
+  way to change it on demand or stop it. Three quiet chips sit bottom-right of the
+  hero (inside `#momentum-hero`, so they vanish with the theme): **↻ shuffle** jumps to
+  a random different photo, **📌 pin** freezes the current one on this device, and
+  **⚙** opens the theme's settings panel.
+- **Two preference layers.** Per-device (`startpage:momentum` in localStorage):
+  `{ offset, pinned, showClock, showGreeting }` — shuffle stores an `offset` added to
+  the day index so rotation *continues from the new photo* rather than snapping back
+  tomorrow; pin stores a fixed index; unpinning folds the index back into the offset
+  so the photo doesn't jump. Synced (`data.momentum` in the blob):
+  `{ pinned, favorites }`, keyed by the stable `photo-…` segment of the Unsplash URL
+  (indices would break if the curated list is edited). Precedence: device pin >
+  synced pin > rotation.
+- **The ⚙ panel** shows all ten photos as thumbnails — click one to show it now, ★ to
+  favorite it. Favorites are synced, and when any exist the daily rotation and
+  shuffle draw only from them, on every device — a curated sub-rotation. "Pin this
+  photo on every device" writes the synced pin (and clears any local pin so the
+  change is visible immediately); clock and greeting have show/hide checkboxes
+  (per-device). `pullAndReconcile` calls `updateMomentum()` after adopting server
+  data so another device's pin applies on load, not at the next 20s tick.
+
+## Momentum daily quote (added 2026-08-19)
+
+- **"Show daily quote" checkbox** in the ⚙ panel (per-device, like clock/greeting);
+  renders under the greeting as `“quote” — author`.
+- **API: DummyJSON quotes** (`dummyjson.com/quotes/{id}`) — 1454 real quotes with
+  stable ids, CORS enabled, no key. The id comes from the day number
+  (`day % 1454 + 1`), so every device shows the same quote all day with nothing
+  synced, and it's one fetch per day, cached in `startpage:quote`. Alternatives were
+  checked and rejected live: quotable.io is dead (expired cert, no response) and
+  zenquotes.io sends no CORS headers, so browsers can't call it.
+- **Fallback list.** A dozen curated quotes ship in the client, rotated by the same
+  day number. The fallback renders immediately while the fetch is in flight (no
+  flash of empty), and simply stays if the API is down or the page is offline; a
+  failed fetch isn't retried until the next load.
+- **Case repair.** ~10% of the DummyJSON set is broken Title Case ("You'Ve Stood
+  Up…"); quotes whose long words are ≥70% capitalized get rewritten in sentence
+  case (proper nouns in those few lose their caps — better than every word
+  shouting).
+
+## Drag links in from outside (added 2026-08-19)
+
+- Dropping a bookmark-bar entry, a link from another page, or the address-bar padlock
+  onto any group adds it there — reusing the same drop-ghost placeholder as internal
+  card drags, so the insertion point is visible before release. External drags are
+  recognized by `text/uri-list` in the dataTransfer types (only when no internal card
+  drag is active); internal drags are unaffected since they carry only `text/plain`.
+- Titles come from the accompanying `text/html` fragment's anchors when present
+  (bookmark and link drags carry one; address-bar drags don't, so those fall back to
+  `titleForUrl()`), keyed by browser-normalized URL. Multi-URL drags insert in order
+  at the drop position; URLs already in the target group are skipped, and an
+  all-duplicate drop writes nothing (no sync churn).
+- Tabs themselves can't be dropped — Chrome turns a tab drag into a new window before
+  page content ever sees it; dragging the address-bar padlock is the equivalent.
+
+## Bulk edit (added 2026-08-19)
+
+- **One dialog, every link a row** (icon glyph + color, title, URL, group select), grouped
+  under sticky group headers with a filter box. Opened from the topbar "Edit" button.
+- **Snapshot diffing.** Row values are compared against a snapshot taken at open; the Save
+  button live-counts real changes ("Save 3 changes", disabled at zero) and changed rows get
+  an accent edge. Reverting a field back to its original drops it from the count. An
+  untouched save closes without a mutation, so no pointless sync write.
+- **Single mutate() on save.** All edits apply in one pass: field updates in place, then
+  moved links are appended to the end of their target group in row order (a missing target
+  group falls back to keeping the link where it was). Blanked title/URL fields fall back to
+  their original values; URLs get `https://` prepended when scheme-less, same as the link
+  form. Empty icon glyph deletes the `icon` key (back to automatic favicon).
+- **Group membership only, not group properties.** Group renames/colors/reordering stay in
+  their existing inline affordances; this screen is about links.
+
+## Decluttered chrome (added 2026-08-19)
+
+- **Topbar collapsed to filter + "+ Group" + a ⋯ menu.** Bulk add, bulk edit, Style,
+  appearance mode, Export, and Import are used rarely, so they moved into a static
+  dropdown (same element ids, so all existing wiring is untouched). The mode item cycles
+  system → light → dark in place without closing the menu; everything else closes it.
+- **Group controls collapsed to one ⋯ menu** (add link, color, move left/right, delete),
+  leaving the header to the title. Group menus are built on demand and positioned
+  `fixed` by JS so they escape the scrolling containers of the columns/rows layouts.
+  The ● color swatch is gone from the header; the accent bar still opens the color
+  dialog directly. Menus close on outside click, Escape, or any scroll.
+- **Link delete lives in the edit dialog.** Cards show a single ✎ on hover; the edit
+  dialog grows a left-aligned Delete button (hidden when adding). It still confirms,
+  and cancelling the confirm keeps the dialog open.
+
+## Style refinements (added 2026-08-19)
+
+- **Default view.** Style stays per-device, but "Save as default view" (in the Style
+  dialog) snapshots the current theme/layout/density/add-link-visibility into the synced
+  blob as `data.defaultView`; "Load default view" on any device copies it back into that
+  device's localStorage. Loading is local-only (no sync write); the load button is
+  disabled until a default has been saved. Deliberately explicit — a fresh device never
+  auto-adopts the default, it just has the button.
+- **Medium density.** A step between comfortable and compact (`--density-scale: 0.85`,
+  21px icons, 205px cards) for screens where comfortable wastes space but compact is
+  too cramped.
+- **Full-width topbar in columns layout.** The columns board ignores the 1400px
+  page max-width and spans the whole screen, so the topbar does too
+  (`html[data-layout="columns"] .topbar { max-width: none; }`) — search bar and menu
+  align with the leftmost/rightmost columns instead of floating centered above them.
+- **Hideable "+ Add link" cards.** A Style-dialog checkbox (per-device,
+  `startpage:addlink`, stamped as `data-addlink` by the head script) hides the dashed
+  add-card from every group; the group ⋯ menu keeps its Add link entry, so nothing is
+  unreachable — the board just gets quieter.
+
+## Interaction fixes (added 2026-08-19)
+
+- **Backdrop click dismisses edit dialogs — only when nothing is unsaved.** The link
+  dialog compares the form against a snapshot taken at open; the bulk-edit dialog reuses
+  its existing row diffing. With unsaved edits, the backdrop click does nothing (Cancel /
+  Escape still discard). The pointer must go down *and* up on the backdrop, so a text
+  selection that ends outside the dialog doesn't close it.
+- **Hideable search bar.** A topbar-menu toggle (per-device, `startpage:search`, stamped
+  as `data-search` by the head script) hides the filter input. Pressing `/` still works:
+  it reveals the bar until blur, which then clears the filter and re-hides it. Hiding via
+  the toggle also clears any active filter so no links stay invisibly filtered out.
+- **Flow-aware drop targeting.** The old insert-position test required the cursor inside
+  a card's vertical band and split before/after by horizontal midpoint — wrong axis for
+  the columns layout's vertical stacks, and cursor positions in the gaps between cards
+  matched nothing (ghost jumped to the end), so the ghost oscillated on every dragover:
+  the flicker. Now the cards container's computed style picks the flow (vertical stack,
+  horizontal row, or wrapping grid) and the anchor is the first card past the cursor
+  along the flow axis, which is stable under the ghost's own layout shifts and has no
+  dead zones.
 
 ## Choices worth noting
 

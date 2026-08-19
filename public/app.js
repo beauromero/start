@@ -7,6 +7,10 @@ const LS_THEME = "startpage:theme";
 const LS_LAYOUT = "startpage:layout";
 const LS_DENSITY = "startpage:density";
 const LS_MODE = "startpage:mode";
+const LS_ADDLINK = "startpage:addlink";
+const LS_SEARCH = "startpage:search";
+const LS_MOMENTUM = "startpage:momentum";
+const LS_QUOTE = "startpage:quote";
 const API = "/api/links";
 const PUSH_DEBOUNCE_MS = 1500;
 const ACCENTS = ["#a78bfa", "#ff7f6e", "#4fd1c5", "#7bd88f", "#f6c177"];
@@ -60,6 +64,10 @@ const themeSelect = document.getElementById("theme-select");
 const layoutSelect = document.getElementById("layout-select");
 const densitySelect = document.getElementById("density-select");
 const modeToggle = document.getElementById("mode-toggle");
+const searchToggle = document.getElementById("search-toggle");
+const addLinkCheck = document.getElementById("addlink-toggle");
+const loadDefaultBtn = document.getElementById("load-default");
+const saveDefaultBtn = document.getElementById("save-default");
 
 // ---------- persistence ----------
 
@@ -116,22 +124,132 @@ function applyAppearance() {
   const theme = localStorage.getItem(LS_THEME) || "bold";
   const layout = localStorage.getItem(LS_LAYOUT) || "vertical";
   const density = localStorage.getItem(LS_DENSITY) || "comfortable";
+  const addLink = localStorage.getItem(LS_ADDLINK) !== "hidden";
+  const search = localStorage.getItem(LS_SEARCH) !== "hidden";
   const el = document.documentElement;
   el.dataset.theme = theme;
   el.dataset.layout = layout;
   el.dataset.density = density;
+  el.dataset.addlink = addLink ? "shown" : "hidden";
+  el.dataset.search = search ? "shown" : "hidden";
   el.dataset.mode = mode === "system" ? (lightQuery.matches ? "light" : "dark") : mode;
+  searchToggle.textContent = search ? "Hide search bar" : "Show search bar";
   themeSelect.value = theme;
   layoutSelect.value = layout;
   densitySelect.value = density;
-  modeToggle.textContent = MODE_ICONS[mode];
-  modeToggle.title = "Appearance: " + mode + " (click to switch)";
+  addLinkCheck.checked = addLink;
+  modeToggle.textContent = MODE_ICONS[mode] + " Appearance: " + mode;
+  modeToggle.title = "Cycles system → light → dark";
   updateMomentum();
 }
 
 document.getElementById("style-btn").addEventListener("click", () => {
+  loadDefaultBtn.disabled = !data.defaultView;
   styleDialog.showModal();
 });
+
+// ---------- default view ----------
+// The style settings are per-device, but "Save as default view" snapshots them
+// into the synced blob (data.defaultView) so any other device can pull the
+// same look with one click. Loading just writes localStorage — no sync write.
+
+saveDefaultBtn.addEventListener("click", () => {
+  mutate((d) => {
+    d.defaultView = {
+      theme: localStorage.getItem(LS_THEME) || "bold",
+      layout: localStorage.getItem(LS_LAYOUT) || "vertical",
+      density: localStorage.getItem(LS_DENSITY) || "comfortable",
+      addLink: localStorage.getItem(LS_ADDLINK) !== "hidden",
+    };
+  });
+  loadDefaultBtn.disabled = false;
+  saveDefaultBtn.textContent = "Saved ✓";
+  setTimeout(() => { saveDefaultBtn.textContent = "Save as default view"; }, 1200);
+});
+
+loadDefaultBtn.addEventListener("click", () => {
+  const v = data.defaultView;
+  if (!v) return;
+  if (v.theme) localStorage.setItem(LS_THEME, v.theme);
+  if (v.layout) localStorage.setItem(LS_LAYOUT, v.layout);
+  if (v.density) localStorage.setItem(LS_DENSITY, v.density);
+  localStorage.setItem(LS_ADDLINK, v.addLink === false ? "hidden" : "shown");
+  applyAppearance();
+});
+
+// ---------- menus ----------
+// The topbar ⋯ menu is static markup toggled in place; group ⋯ menus are built
+// on demand and float over the board (fixed position, so they escape the
+// scrolling/overflow containers of the columns and rows layouts). Both close on
+// outside click, Escape, or scroll.
+
+const topbarMenu = document.getElementById("topbar-menu");
+const topbarMenuBtn = document.getElementById("topbar-menu-btn");
+
+let openMenu = null; // floating group menu element
+let openMenuAnchor = null;
+
+function closeMenus() {
+  if (openMenu) {
+    openMenu.remove();
+    openMenuAnchor.classList.remove("menu-open");
+    openMenu = null;
+    openMenuAnchor = null;
+  }
+  topbarMenu.hidden = true;
+}
+
+function showMenu(anchor, items) {
+  if (openMenuAnchor === anchor) {
+    closeMenus();
+    return;
+  }
+  closeMenus();
+  const menu = document.createElement("div");
+  menu.className = "menu floating";
+  for (const item of items) {
+    if (item === "-") {
+      menu.appendChild(document.createElement("hr"));
+      continue;
+    }
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = item.label;
+    if (item.danger) b.className = "danger";
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeMenus();
+      item.action();
+    });
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.top = Math.min(r.bottom + 6, innerHeight - menu.offsetHeight - 8) + "px";
+  menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + "px";
+  openMenu = menu;
+  openMenuAnchor = anchor;
+  anchor.classList.add("menu-open");
+}
+
+topbarMenuBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const wasOpen = !topbarMenu.hidden;
+  closeMenus();
+  topbarMenu.hidden = wasOpen;
+});
+
+topbarMenu.addEventListener("click", (e) => {
+  e.stopPropagation();
+  // Mode toggle cycles in place; every other item closes the menu.
+  if (e.target.closest("button") && e.target.id !== "mode-toggle") topbarMenu.hidden = true;
+});
+
+document.addEventListener("click", closeMenus);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMenus();
+});
+window.addEventListener("scroll", closeMenus, true);
 
 // Changes apply live while the dialog is open
 themeSelect.addEventListener("change", () => {
@@ -146,10 +264,26 @@ densitySelect.addEventListener("change", () => {
   localStorage.setItem(LS_DENSITY, densitySelect.value);
   applyAppearance();
 });
+addLinkCheck.addEventListener("change", () => {
+  localStorage.setItem(LS_ADDLINK, addLinkCheck.checked ? "shown" : "hidden");
+  applyAppearance();
+});
 
 modeToggle.addEventListener("click", () => {
   const next = MODES[(MODES.indexOf(getMode()) + 1) % MODES.length];
   localStorage.setItem(LS_MODE, next);
+  applyAppearance();
+});
+
+// Hiding the search bar clears any active filter so no links stay invisibly
+// filtered out. Pressing / still works while hidden (reveals until blur).
+searchToggle.addEventListener("click", () => {
+  const hidden = localStorage.getItem(LS_SEARCH) === "hidden";
+  localStorage.setItem(LS_SEARCH, hidden ? "shown" : "hidden");
+  if (!hidden) {
+    filterInput.value = "";
+    applyFilter();
+  }
   applyAppearance();
 });
 
@@ -177,6 +311,275 @@ const MOMENTUM_PHOTOS = [
 const momentumHero = document.getElementById("momentum-hero");
 const momentumClock = document.getElementById("momentum-clock");
 const momentumGreeting = document.getElementById("momentum-greeting");
+const momentumShuffle = document.getElementById("momentum-shuffle");
+const momentumPin = document.getElementById("momentum-pin");
+const momentumDialog = document.getElementById("momentum-dialog");
+const momentumThumbs = document.getElementById("momentum-thumbs");
+const momentumServerPinBtn = document.getElementById("momentum-server-pin");
+const momentumClockCheck = document.getElementById("momentum-show-clock");
+const momentumGreetingCheck = document.getElementById("momentum-show-greeting");
+const momentumQuoteEl = document.getElementById("momentum-quote");
+const momentumQuoteCheck = document.getElementById("momentum-show-quote");
+
+// Two layers of preference:
+// - Per-device (localStorage): { offset?, pinned?, showClock?, showGreeting? }.
+//   "offset" shifts which pool photo today lands on (set by shuffle, so the
+//   rotation carries on from the new photo tomorrow); "pinned" freezes an index.
+// - Synced (data.momentum): { pinned?, favorites? } keyed by the stable
+//   "photo-…" segment of the Unsplash URL (indices would break if the curated
+//   list is ever edited). A synced pin shows the same photo on every device;
+//   favorites, when any exist, become the rotation/shuffle pool everywhere.
+// Precedence: device pin > synced pin > rotation over the pool.
+function momentumPref() {
+  try { return JSON.parse(localStorage.getItem(LS_MOMENTUM)) || {}; } catch { return {}; }
+}
+
+function saveMomentumPref(pref) {
+  localStorage.setItem(LS_MOMENTUM, JSON.stringify(pref));
+}
+
+function momentumDay() {
+  return Math.floor(Date.now() / 86400000);
+}
+
+function momentumPhotoId(url) {
+  return url.split("/").pop().split("?")[0]; // "photo-1506905925346-21bda4d32df4"
+}
+
+function momentumSynced() {
+  return (data && data.momentum) || {};
+}
+
+// Rotation pool: favorite photos when any are set (and still exist), else all.
+function momentumPool() {
+  const favs = momentumSynced().favorites;
+  const idx = (Array.isArray(favs) ? favs : [])
+    .map((id) => MOMENTUM_PHOTOS.findIndex((u) => momentumPhotoId(u) === id))
+    .filter((i) => i >= 0);
+  return idx.length ? idx : MOMENTUM_PHOTOS.map((_, i) => i);
+}
+
+function momentumIndex() {
+  const n = MOMENTUM_PHOTOS.length;
+  const pref = momentumPref();
+  if (Number.isInteger(pref.pinned)) return ((pref.pinned % n) + n) % n;
+  const sp = momentumSynced().pinned;
+  if (sp) {
+    const i = MOMENTUM_PHOTOS.findIndex((u) => momentumPhotoId(u) === sp);
+    if (i >= 0) return i;
+  }
+  const pool = momentumPool();
+  return pool[(momentumDay() + (pref.offset || 0)) % pool.length];
+}
+
+// Show photo `next` on this device: pin it if any pin is active (a shuffle or
+// thumbnail click while pinned shouldn't silently unpin), otherwise fold it
+// into the rotation offset so daily changes continue from it.
+function momentumShow(next) {
+  const pref = momentumPref();
+  if (Number.isInteger(pref.pinned) || momentumSynced().pinned) {
+    pref.pinned = next;
+  } else {
+    const pool = momentumPool();
+    const pos = Math.max(0, pool.indexOf(next));
+    pref.offset = ((pos - momentumDay()) % pool.length + pool.length) % pool.length;
+  }
+  saveMomentumPref(pref);
+  updateMomentum();
+}
+
+momentumShuffle.addEventListener("click", () => {
+  const choices = momentumPool().filter((i) => i !== momentumIndex());
+  if (!choices.length) return;
+  momentumShow(choices[Math.floor(Math.random() * choices.length)]);
+});
+
+momentumPin.addEventListener("click", () => {
+  const pref = momentumPref();
+  if (Number.isInteger(pref.pinned)) {
+    // Unpin without changing today's photo: fold the pinned photo into the
+    // rotation offset, so daily changes resume tomorrow.
+    const pool = momentumPool();
+    const pos = Math.max(0, pool.indexOf(pref.pinned));
+    pref.offset = ((pos - momentumDay()) % pool.length + pool.length) % pool.length;
+    delete pref.pinned;
+  } else {
+    pref.pinned = momentumIndex();
+  }
+  saveMomentumPref(pref);
+  updateMomentum();
+});
+
+// ----- the ⚙ settings panel -----
+
+function momentumThumbUrl(url) {
+  return url.replace("w=1920", "w=320");
+}
+
+function refreshMomentumPanel() {
+  const synced = momentumSynced();
+  const favs = Array.isArray(synced.favorites) ? synced.favorites : [];
+  const current = momentumIndex();
+
+  momentumThumbs.textContent = "";
+  MOMENTUM_PHOTOS.forEach((url, i) => {
+    const id = momentumPhotoId(url);
+    const thumb = document.createElement("div");
+    thumb.className = "momentum-thumb" + (i === current ? " current" : "");
+    thumb.style.backgroundImage = `url("${momentumThumbUrl(url)}")`;
+    thumb.title = "Show this photo now";
+    thumb.addEventListener("click", () => {
+      momentumShow(i);
+      refreshMomentumPanel();
+    });
+
+    const fav = document.createElement("button");
+    fav.type = "button";
+    fav.className = "momentum-fav" + (favs.includes(id) ? " faved" : "");
+    fav.textContent = favs.includes(id) ? "★" : "☆";
+    fav.title = favs.includes(id) ? "Remove from favorites" : "Add to favorites";
+    fav.addEventListener("click", (e) => {
+      e.stopPropagation();
+      mutate((d) => {
+        const m = d.momentum || (d.momentum = {});
+        const list = Array.isArray(m.favorites) ? m.favorites : (m.favorites = []);
+        const j = list.indexOf(id);
+        if (j >= 0) list.splice(j, 1); else list.push(id);
+        if (!list.length) delete m.favorites;
+        if (!m.pinned && !m.favorites) delete d.momentum;
+      });
+      updateMomentum();
+      refreshMomentumPanel();
+    });
+    thumb.appendChild(fav);
+    momentumThumbs.appendChild(thumb);
+  });
+
+  const currentId = momentumPhotoId(MOMENTUM_PHOTOS[current]);
+  const serverPinned = synced.pinned === currentId;
+  momentumServerPinBtn.textContent = serverPinned
+    ? "Unpin from every device"
+    : "Pin this photo on every device";
+  momentumServerPinBtn.classList.toggle("active", Boolean(synced.pinned));
+
+  const pref = momentumPref();
+  momentumClockCheck.checked = pref.showClock !== false;
+  momentumGreetingCheck.checked = pref.showGreeting !== false;
+  momentumQuoteCheck.checked = pref.showQuote !== false;
+}
+
+document.getElementById("momentum-settings").addEventListener("click", () => {
+  refreshMomentumPanel();
+  momentumDialog.showModal();
+});
+
+momentumServerPinBtn.addEventListener("click", () => {
+  const id = momentumPhotoId(MOMENTUM_PHOTOS[momentumIndex()]);
+  mutate((d) => {
+    const m = d.momentum || (d.momentum = {});
+    if (m.pinned === id) delete m.pinned;
+    else m.pinned = id;
+    if (!m.pinned && !(Array.isArray(m.favorites) && m.favorites.length)) delete d.momentum;
+  });
+  // A device pin would mask the synced pin here — clear it so the change shows.
+  const pref = momentumPref();
+  delete pref.pinned;
+  saveMomentumPref(pref);
+  updateMomentum();
+  refreshMomentumPanel();
+});
+
+// ----- daily quote -----
+// DummyJSON's quote set: 1454 real quotes with stable ids and CORS enabled, no
+// key. Picking the id from the day number means every device shows the same
+// quote all day without syncing anything — and one fetch per day, cached in
+// localStorage. (quotable.io is dead — expired cert — and zenquotes.io sends
+// no CORS headers, so browsers can't call it; both were checked and rejected.)
+const QUOTE_API = "https://dummyjson.com/quotes/";
+const QUOTE_API_COUNT = 1454;
+
+// Offline / API-down fallback, rotated by the same day number.
+const FALLBACK_QUOTES = [
+  ["The best way to get started is to quit talking and begin doing.", "Walt Disney"],
+  ["It always seems impossible until it's done.", "Nelson Mandela"],
+  ["Well begun is half done.", "Aristotle"],
+  ["What you do today can improve all your tomorrows.", "Ralph Marston"],
+  ["Simplicity is the ultimate sophistication.", "Leonardo da Vinci"],
+  ["Action is the foundational key to all success.", "Pablo Picasso"],
+  ["The obstacle is the way.", "Marcus Aurelius"],
+  ["Whether you think you can or you think you can't, you're right.", "Henry Ford"],
+  ["The secret of getting ahead is getting started.", "Mark Twain"],
+  ["We are what we repeatedly do. Excellence, then, is not an act, but a habit.", "Will Durant"],
+  ["Make each day your masterpiece.", "John Wooden"],
+  ["How we spend our days is, of course, how we spend our lives.", "Annie Dillard"],
+];
+
+let quoteFetchState = null; // "loading" | "failed" (failed = don't retry until reload)
+
+// ~10% of the DummyJSON set is broken Title Case ("You'Ve Stood Up…"); detect
+// mostly-capitalized quotes and rewrite them in sentence case. Proper nouns
+// inside those few quotes lose their caps — better than every word shouting.
+function normalizeQuote(text) {
+  const eligible = text.split(" ").filter((w) => w.length > 3);
+  const caps = eligible.filter((w) => /^[A-Z]/.test(w)).length;
+  if (!eligible.length || caps <= eligible.length * 0.7) return text;
+  return text.toLowerCase()
+    .replace(/(^|[.!?]\s+)([a-z])/g, (m, p, c) => p + c.toUpperCase())
+    .replace(/\bi\b/g, "I");
+}
+
+function renderMomentumQuote(text, author) {
+  momentumQuoteEl.textContent = "";
+  momentumQuoteEl.append(`“${text}”`);
+  if (author) {
+    const a = document.createElement("span");
+    a.className = "momentum-quote-author";
+    a.textContent = " — " + author;
+    momentumQuoteEl.appendChild(a);
+  }
+}
+
+function ensureMomentumQuote() {
+  const day = momentumDay();
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_QUOTE));
+    if (cached && cached.day === day && cached.text) {
+      renderMomentumQuote(cached.text, cached.author);
+      return;
+    }
+  } catch {}
+
+  // Fallback renders immediately; a successful fetch swaps it out.
+  const [ft, fa] = FALLBACK_QUOTES[day % FALLBACK_QUOTES.length];
+  renderMomentumQuote(ft, fa);
+  if (quoteFetchState) return;
+
+  quoteFetchState = "loading";
+  fetch(QUOTE_API + ((day % QUOTE_API_COUNT) + 1))
+    .then((r) => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then((q) => {
+      if (!q || !q.quote) throw new Error("bad payload");
+      const text = normalizeQuote(q.quote);
+      localStorage.setItem(LS_QUOTE, JSON.stringify({ day, text, author: q.author || "" }));
+      quoteFetchState = null;
+      renderMomentumQuote(text, q.author);
+    })
+    .catch(() => {
+      quoteFetchState = "failed"; // fallback quote is already showing
+    });
+}
+
+for (const [check, key] of [[momentumClockCheck, "showClock"], [momentumGreetingCheck, "showGreeting"], [momentumQuoteCheck, "showQuote"]]) {
+  check.addEventListener("change", () => {
+    const pref = momentumPref();
+    pref[key] = check.checked;
+    saveMomentumPref(pref);
+    updateMomentum();
+  });
+}
 
 function updateMomentum() {
   const active = document.documentElement.dataset.theme === "momentum";
@@ -185,9 +588,20 @@ function updateMomentum() {
     document.body.style.removeProperty("--momentum-image");
     return;
   }
-  const day = Math.floor(Date.now() / 86400000);
-  const url = MOMENTUM_PHOTOS[day % MOMENTUM_PHOTOS.length];
+  const url = MOMENTUM_PHOTOS[momentumIndex()];
   document.body.style.setProperty("--momentum-image", `url("${url}")`);
+
+  const pref = momentumPref();
+  const pinned = Number.isInteger(pref.pinned);
+  momentumPin.classList.toggle("active", pinned);
+  momentumPin.title = pinned
+    ? "Background pinned on this device — click to resume rotation"
+    : "Pin this background on this device";
+
+  momentumClock.hidden = pref.showClock === false;
+  momentumGreeting.hidden = pref.showGreeting === false;
+  momentumQuoteEl.hidden = pref.showQuote === false;
+  if (!momentumQuoteEl.hidden) ensureMomentumQuote();
 
   const now = new Date();
   const h = now.getHours();
@@ -274,6 +688,7 @@ async function pullAndReconcile() {
       saveLocal();
       setDirty(false);
       render();
+      updateMomentum(); // synced momentum pin/favorites may have changed
     } else if (localAt > serverAt || isDirty()) {
       schedulePush(false);
     } else {
@@ -328,21 +743,20 @@ function renderGroup(group, gi) {
   name.addEventListener("click", () => startRename(group, name));
   header.appendChild(name);
 
-  const colorBtn = document.createElement("button");
-  colorBtn.type = "button";
-  colorBtn.className = "color-btn";
-  colorBtn.title = "Group color";
-  colorBtn.addEventListener("click", () => openColorDialog(group));
-
   const controls = document.createElement("div");
   controls.className = "group-controls";
-  controls.append(
-    iconBtn("+", "Add link", () => openLinkDialog(group.id, null)),
-    colorBtn,
-    iconBtn("◂", "Move group left", () => moveGroup(group.id, -1)),
-    iconBtn("▸", "Move group right", () => moveGroup(group.id, 1)),
-    iconBtn("✕", "Delete group", () => deleteGroup(group), "danger"),
-  );
+  const menuBtn = iconBtn("⋯", "Group options", () => {
+    showMenu(menuBtn, [
+      { label: "+ Add link", action: () => openLinkDialog(group.id, null) },
+      { label: "● Color…", action: () => openColorDialog(group) },
+      "-",
+      { label: "◂ Move left", action: () => moveGroup(group.id, -1) },
+      { label: "▸ Move right", action: () => moveGroup(group.id, 1) },
+      "-",
+      { label: "✕ Delete group…", action: () => deleteGroup(group), danger: true },
+    ]);
+  });
+  controls.appendChild(menuBtn);
   header.appendChild(controls);
   section.appendChild(header);
 
@@ -407,7 +821,6 @@ function renderCard(link, group) {
   actions.className = "card-actions";
   actions.append(
     iconBtn("✎", "Edit link", () => openLinkDialog(group.id, link)),
-    iconBtn("✕", "Delete link", () => deleteLink(group.id, link), "danger"),
   );
   card.appendChild(actions);
 
@@ -438,10 +851,54 @@ function letterTile(title) {
   return tile;
 }
 
+// Built-in icon set: basic shapes and common symbols, stored in the glyph field
+// as a ":name:" token so the data model, sync, and bulk edit stay unchanged.
+// Stroke-based 24×24 paths (Feather-style).
+const ICONS = {
+  circle: '<circle cx="12" cy="12" r="8"/>',
+  square: '<rect x="5" y="5" width="14" height="14" rx="2"/>',
+  triangle: '<path d="M12 4.5 20.5 19.5H3.5z"/>',
+  diamond: '<path d="M12 3l8 9-8 9-8-9z"/>',
+  star: '<path d="M12 3l2.7 5.8 6.3.8-4.6 4.4 1.2 6.2-5.6-3.1-5.6 3.1 1.2-6.2L3 9.6l6.3-.8z"/>',
+  heart: '<path d="M12 20S3.5 14.7 2.6 9.9C2 6.6 4.3 4.5 6.9 4.5c2 0 3.6 1 5.1 3 1.5-2 3.1-3 5.1-3 2.6 0 4.9 2.1 4.3 5.4C20.5 14.7 12 20 12 20z"/>',
+  bolt: '<path d="M13 2 4 14h7l-2 8 9-12h-7z"/>',
+  home: '<path d="M3 11l9-8 9 8"/><path d="M5 9.5V21h14V9.5"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.5 13.5 0 010 18M12 3a13.5 13.5 0 000 18"/>',
+  code: '<path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/>',
+  terminal: '<path d="M4 6l6 6-6 6M13 18h8"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  chat: '<path d="M21 11.5a8.5 8.5 0 01-8.5 8.5H3l2.4-3.1A8.5 8.5 0 1121 11.5z"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>',
+  music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  camera: '<path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>',
+  folder: '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
+  chart: '<path d="M18 20V10M12 20V4M6 20v-6"/>',
+  cart: '<circle cx="9" cy="21" r="1.5"/><circle cx="19" cy="21" r="1.5"/><path d="M1 1h4l2.7 13.4a2 2 0 002 1.6h9.7a2 2 0 002-1.6L23 6H6"/>',
+  gear: '<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>',
+  wrench: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>',
+  doc: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/>',
+  play: '<path d="M7 4l13 8-13 8z"/>',
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
+};
+
+const ICON_TOKEN = /^:([a-z0-9-]+):$/;
+
+function iconSvg(name) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+}
+
 // Roughly: does the glyph start with a character outside basic Latin? Then treat
-// it as an emoji (no colored background, larger size).
+// it as an emoji (no colored background, larger size). A ":name:" token from the
+// built-in set renders as an SVG on the colored tile instead.
 function glyphTile(icon) {
   const tile = document.createElement("span");
+  const m = ICON_TOKEN.exec(icon.glyph);
+  if (m && ICONS[m[1]]) {
+    tile.className = "card-tile icon";
+    tile.innerHTML = iconSvg(m[1]);
+    if (icon.color) tile.style.setProperty("--tile-color", icon.color);
+    return tile;
+  }
   const isEmoji = /^\P{ASCII}/u.test(icon.glyph);
   tile.className = "card-tile" + (isEmoji ? " emoji" : "");
   tile.textContent = icon.glyph;
@@ -458,6 +915,10 @@ function iconBtn(label, title, onClick, extraClass) {
   btn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    // stopPropagation keeps this click from the document-level menu closer, so
+    // close open menus here — unless this button's own menu is open, in which
+    // case showMenu's toggle handles it.
+    if (openMenuAnchor !== btn) closeMenus();
     onClick();
   });
   return btn;
@@ -569,13 +1030,63 @@ colorDialog.querySelector('[data-action="cancel"]').addEventListener("click", ()
 
 // ---------- link ops ----------
 
+// Clicking the backdrop dismisses an edit dialog, but only when tryDismiss
+// decides there's nothing unsaved to lose. A native dialog's backdrop click
+// reports the dialog itself as the target with coordinates outside its box;
+// requiring the pointer to also go *down* outside keeps a text-selection drag
+// that ends on the backdrop from closing the dialog.
+function wireBackdropDismiss(dialog, tryDismiss) {
+  const outside = (e) => {
+    const r = dialog.getBoundingClientRect();
+    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+  };
+  let downOutside = false;
+  dialog.addEventListener("pointerdown", (e) => {
+    downOutside = e.target === dialog && outside(e);
+  });
+  dialog.addEventListener("click", (e) => {
+    if (downOutside && e.target === dialog && outside(e)) tryDismiss();
+    downOutside = false;
+  });
+}
+
 let dialogCtx = null; // { groupId, linkId | null }
+let linkDialogOpened = null; // form snapshot at open, for backdrop dismiss
 
 const iconFields = linkForm.querySelector(".icon-fields");
 const customIconCheck = linkForm.elements.customIcon;
 customIconCheck.addEventListener("change", () => {
   iconFields.hidden = !customIconCheck.checked;
 });
+
+// Icon grid in the link dialog: clicking a built-in icon writes its ":name:"
+// token into the glyph field (the single source of truth); clicking again
+// clears it. Typing an emoji/letters just deselects the grid.
+const iconGrid = document.getElementById("icon-grid");
+for (const name of Object.keys(ICONS)) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "icon-choice";
+  b.title = name;
+  b.dataset.icon = name;
+  b.innerHTML = iconSvg(name);
+  b.addEventListener("click", () => {
+    const token = ":" + name + ":";
+    const glyph = linkForm.elements.glyph;
+    glyph.value = glyph.value.trim() === token ? "" : token;
+    syncIconGrid();
+  });
+  iconGrid.appendChild(b);
+}
+
+function syncIconGrid() {
+  const v = linkForm.elements.glyph.value.trim();
+  for (const b of iconGrid.children) {
+    b.classList.toggle("selected", v === ":" + b.dataset.icon + ":");
+  }
+}
+
+linkForm.elements.glyph.addEventListener("input", syncIconGrid);
 
 // Preset swatches in the link dialog just set the color input's value.
 {
@@ -596,6 +1107,7 @@ customIconCheck.addEventListener("change", () => {
 function openLinkDialog(groupId, link) {
   dialogCtx = { groupId, linkId: link ? link.id : null };
   document.getElementById("link-dialog-title").textContent = link ? "Edit link" : "Add link";
+  linkDeleteBtn.hidden = !link;
   linkForm.elements.title.value = link ? link.title : "";
   linkForm.elements.url.value = link ? link.url : "";
   const icon = link && link.icon;
@@ -603,8 +1115,24 @@ function openLinkDialog(groupId, link) {
   iconFields.hidden = !customIconCheck.checked;
   linkForm.elements.glyph.value = icon ? icon.glyph || "" : "";
   linkForm.elements.iconColor.value = (icon && icon.color) || "#a78bfa";
+  syncIconGrid();
+  linkDialogOpened = linkFormSnapshot();
   linkDialog.showModal();
 }
+
+function linkFormSnapshot() {
+  return JSON.stringify([
+    linkForm.elements.title.value,
+    linkForm.elements.url.value,
+    customIconCheck.checked,
+    linkForm.elements.glyph.value,
+    linkForm.elements.iconColor.value,
+  ]);
+}
+
+wireBackdropDismiss(linkDialog, () => {
+  if (linkFormSnapshot() === linkDialogOpened) linkDialog.close();
+});
 
 linkForm.addEventListener("submit", () => {
   const title = linkForm.elements.title.value.trim();
@@ -639,12 +1167,23 @@ linkForm.querySelector('[data-action="cancel"]').addEventListener("click", () =>
   linkDialog.close();
 });
 
+// Delete lives in the edit dialog (cards only carry the ✎ icon); it still
+// confirms, and cancelling the confirm leaves the dialog open for more edits.
+const linkDeleteBtn = linkForm.querySelector('[data-action="delete"]');
+linkDeleteBtn.addEventListener("click", () => {
+  const { groupId, linkId } = dialogCtx;
+  const g = data.groups.find((g) => g.id === groupId);
+  const link = g && g.links.find((l) => l.id === linkId);
+  if (link && deleteLink(groupId, link)) linkDialog.close();
+});
+
 function deleteLink(groupId, link) {
-  if (!window.confirm(`Delete “${link.title}”?`)) return;
+  if (!window.confirm(`Delete “${link.title}”?`)) return false;
   mutate((d) => {
     const g = d.groups.find((g) => g.id === groupId);
     if (g) g.links = g.links.filter((l) => l.id !== link.id);
   });
+  return true;
 }
 
 // ---------- bulk add ----------
@@ -693,55 +1232,202 @@ document.getElementById("bulk-add").addEventListener("click", () => {
   bulkDialog.showModal();
 });
 
-bulkForm.addEventListener("submit", () => {
-  const lines = bulkForm.elements.text.value
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (!lines.length) return;
-
-  mutate((d) => {
-    let group = null;
-    const usedTitles = new Map(); // per-group title → count, for "Supabase 2" dedupe
-    const seeded = new Set(); // group ids whose existing titles are already counted
-
-    const groupFor = (name) => {
-      const existing = d.groups.find(
-        (g) => g.name.toLowerCase() === name.toLowerCase(),
-      );
-      const g = existing || { id: uid("g"), name, links: [] };
-      if (!existing) d.groups.push(g);
-      // Seed the dedupe counter with the group's existing titles so a second
-      // "Supabase" pasted into a group that already has one becomes "Supabase 2".
-      if (!seeded.has(g.id)) {
-        seeded.add(g.id);
-        for (const l of g.links) {
-          const key = g.id + " " + l.title.replace(/ \d+$/, "");
-          usedTitles.set(key, (usedTitles.get(key) || 0) + 1);
-        }
-      }
-      return g;
-    };
-
-    for (const line of lines) {
-      if (!looksLikeUrl(line)) {
-        group = groupFor(line);
-        continue;
-      }
-      if (!group) group = groupFor("Imported");
-      const url = /^https?:\/\//i.test(line) ? line : "https://" + line;
-      let title = titleForUrl(url);
-      const key = group.id + " " + title;
-      const n = (usedTitles.get(key) || 0) + 1;
-      usedTitles.set(key, n);
-      if (n > 1) title += " " + n;
-      group.links.push({ id: uid("l"), title, url });
-    }
-  });
+bulkForm.addEventListener("submit", (e) => {
+  const items = parseBulkText(bulkForm.elements.text.value);
+  if (!items.length) {
+    e.preventDefault(); // keep the paste dialog open
+    window.alert("No links found — paste one URL per line.");
+    return;
+  }
+  openBulkPick(items);
 });
 
 bulkForm.querySelector('[data-action="cancel"]').addEventListener("click", () => {
   bulkDialog.close();
+});
+
+// ---------- bulk edit ----------
+// One screen with every link as an editable row (icon, title, URL, group),
+// applied in a single mutate() on save. Rows are compared against a snapshot
+// taken when the dialog opens, so the Save button counts real changes and an
+// untouched save is a no-op (no pointless sync write).
+
+const editDialog = document.getElementById("edit-dialog");
+const editForm = document.getElementById("edit-form");
+const editRowsEl = document.getElementById("edit-rows");
+const editFilterInput = document.getElementById("edit-filter");
+const editSubmit = document.getElementById("edit-submit");
+let editState = null; // [{ linkId, row, orig, titleInput, urlInput, glyphInput, colorInput, groupSelect }]
+let editHeaders = null; // [{ el, rows }] for filter hiding
+
+function normalizeUrl(url) {
+  url = url.trim();
+  if (url && !/^[a-z][a-z0-9+.-]*:/i.test(url)) url = "https://" + url;
+  return url;
+}
+
+function editRowValues(r) {
+  const glyph = r.glyphInput.value.trim();
+  return {
+    title: r.titleInput.value.trim() || r.orig.title,
+    url: normalizeUrl(r.urlInput.value) || r.orig.url,
+    icon: glyph ? { glyph, color: r.colorInput.value } : null,
+    groupId: r.groupSelect.value,
+  };
+}
+
+function editRowChanged(r) {
+  const v = editRowValues(r);
+  return v.title !== r.orig.title
+    || v.url !== r.orig.url
+    || v.groupId !== r.orig.groupId
+    || JSON.stringify(v.icon) !== JSON.stringify(r.orig.icon);
+}
+
+function editUpdateCount() {
+  if (!editState) return;
+  let n = 0;
+  for (const r of editState) {
+    const changed = editRowChanged(r);
+    r.row.classList.toggle("edited", changed);
+    if (changed) n++;
+  }
+  editSubmit.disabled = n === 0;
+  editSubmit.textContent = n ? `Save ${n} change${n === 1 ? "" : "s"}` : "Save";
+}
+
+document.getElementById("bulk-edit").addEventListener("click", () => {
+  editRowsEl.textContent = "";
+  editFilterInput.value = "";
+  editState = [];
+  editHeaders = [];
+
+  for (const group of data.groups) {
+    const header = document.createElement("div");
+    header.className = "edit-group-header";
+    header.textContent = group.name;
+    editRowsEl.appendChild(header);
+    const headerEntry = { el: header, rows: [] };
+    editHeaders.push(headerEntry);
+
+    for (const link of group.links) {
+      const row = document.createElement("div");
+      row.className = "edit-row";
+
+      const glyphInput = document.createElement("input");
+      glyphInput.type = "text";
+      glyphInput.className = "edit-glyph";
+      glyphInput.maxLength = 24; // room for ":terminal:"-style icon tokens
+      glyphInput.placeholder = "auto";
+      glyphInput.spellcheck = false;
+      glyphInput.value = (link.icon && link.icon.glyph) || "";
+
+      const colorInput = document.createElement("input");
+      colorInput.type = "color";
+      colorInput.className = "color-input";
+      colorInput.title = "Icon color (used when icon text is set)";
+      colorInput.value = (link.icon && link.icon.color) || "#a78bfa";
+
+      const iconCell = document.createElement("span");
+      iconCell.className = "edit-icon-cell";
+      iconCell.append(glyphInput, colorInput);
+
+      const titleInput = document.createElement("input");
+      titleInput.type = "text";
+      titleInput.spellcheck = false;
+      titleInput.value = link.title;
+
+      const urlInput = document.createElement("input");
+      urlInput.type = "text";
+      urlInput.spellcheck = false;
+      urlInput.value = link.url;
+
+      const groupSelect = document.createElement("select");
+      for (const g of data.groups) {
+        const opt = document.createElement("option");
+        opt.value = g.id;
+        opt.textContent = g.name;
+        groupSelect.appendChild(opt);
+      }
+      groupSelect.value = group.id;
+
+      row.append(iconCell, titleInput, urlInput, groupSelect);
+      editRowsEl.appendChild(row);
+      headerEntry.rows.push(row);
+
+      editState.push({
+        linkId: link.id,
+        row,
+        orig: {
+          title: link.title,
+          url: link.url,
+          groupId: group.id,
+          icon: link.icon && link.icon.glyph
+            ? { glyph: link.icon.glyph, color: link.icon.color || "#a78bfa" }
+            : null,
+        },
+        titleInput, urlInput, glyphInput, colorInput, groupSelect,
+      });
+    }
+  }
+
+  editUpdateCount();
+  editDialog.showModal();
+});
+
+editRowsEl.addEventListener("input", editUpdateCount);
+editRowsEl.addEventListener("change", editUpdateCount);
+
+editFilterInput.addEventListener("input", () => {
+  if (!editState) return;
+  const q = editFilterInput.value.trim().toLowerCase();
+  for (const r of editState) {
+    const hay = (r.titleInput.value + " " + r.urlInput.value).toLowerCase();
+    r.row.hidden = Boolean(q) && !hay.includes(q);
+  }
+  for (const h of editHeaders) {
+    h.el.hidden = Boolean(q) && h.rows.every((row) => row.hidden);
+  }
+});
+
+editForm.addEventListener("submit", () => {
+  const rows = editState;
+  editState = null;
+  if (!rows.some(editRowChanged)) return; // untouched — just close
+
+  mutate((d) => {
+    const byId = new Map(rows.map((r) => [r.linkId, r]));
+    const moved = [];
+    for (const g of d.groups) {
+      const keep = [];
+      for (const link of g.links) {
+        const r = byId.get(link.id);
+        if (!r) { keep.push(link); continue; }
+        const v = editRowValues(r);
+        Object.assign(link, { title: v.title, url: v.url });
+        if (v.icon) link.icon = v.icon;
+        else delete link.icon;
+        if (v.groupId === g.id) keep.push(link);
+        else moved.push({ link, to: v.groupId, from: g });
+      }
+      g.links = keep;
+    }
+    for (const m of moved) {
+      const to = d.groups.find((g) => g.id === m.to);
+      (to || m.from).links.push(m.link);
+    }
+  });
+});
+
+editForm.querySelector('[data-action="cancel"]').addEventListener("click", () => {
+  editState = null;
+  editDialog.close();
+});
+
+wireBackdropDismiss(editDialog, () => {
+  if (editState && editState.some(editRowChanged)) return; // unsaved edits
+  editState = null;
+  editDialog.close();
 });
 
 // ---------- drag and drop ----------
@@ -757,34 +1443,98 @@ function removeDropGhost() {
   dropGhost.remove();
 }
 
-function findDropTarget(cardsEl, x, y) {
-  const cards = [...cardsEl.querySelectorAll(".card:not(.dragging)")];
-  for (const card of cards) {
+// How the cards flow inside this container, per the current layout:
+//   vertical   — one card per line (columns layout, or a one-track grid)
+//   horizontal — one line of cards scrolling sideways (rows layout)
+//   wrap       — row-major wrapping grid (vertical + grid layouts)
+// The insertion test must follow the flow axis: measuring the cross axis (or
+// requiring the cursor to sit exactly inside a card's band, so gaps between
+// cards match nothing) makes the ghost oscillate between spots on every
+// dragover — the flicker this replaces.
+function cardsFlow(cardsEl) {
+  const s = getComputedStyle(cardsEl);
+  if (s.display === "flex") return s.flexDirection.startsWith("column") ? "vertical" : "horizontal";
+  return s.gridTemplateColumns.trim().includes(" ") ? "wrap" : "vertical";
+}
+
+// The card the drop ghost should sit before; the trailing + Add button catches
+// the append-at-end case. "Before this card" greedily matches the first card
+// past the cursor along the flow axis, so cursor positions in the gaps between
+// cards (and rows) resolve to a stable spot instead of falling through.
+function findDropAnchor(cardsEl, x, y) {
+  const flow = cardsFlow(cardsEl);
+  for (const card of cardsEl.querySelectorAll(".card:not(.dragging)")) {
     const r = card.getBoundingClientRect();
-    if (y < r.top || y > r.bottom) continue;
-    const before = x < r.left + r.width / 2;
-    return { card, before };
+    if (flow === "vertical") {
+      if (y < r.top + r.height / 2) return card;
+    } else if (flow === "horizontal") {
+      if (x < r.left + r.width / 2) return card;
+    } else if (y < r.top || (y <= r.bottom && x < r.left + r.width / 2)) {
+      return card;
+    }
   }
-  return { card: null, before: false };
+  return cardsEl.querySelector(".card-add");
 }
 
 function positionDropGhost(cardsEl, x, y) {
-  const { card, before } = findDropTarget(cardsEl, x, y);
-  let anchor;
-  if (card) {
-    anchor = before ? card : card.nextElementSibling;
-  } else {
-    anchor = cardsEl.querySelector(".card-add"); // append at end
-  }
+  const anchor = findDropAnchor(cardsEl, x, y);
   if (anchor === dropGhost || anchor === dropGhost.nextElementSibling) return;
   cardsEl.insertBefore(dropGhost, anchor);
 }
 
+// A drag from outside the page — a bookmark-bar entry, a link on another page,
+// the address bar's padlock — carries text/uri-list. Tabs themselves can't be
+// dropped (Chrome turns a tab drag into a new window before the page sees it).
+function isExternalLinkDrag(e) {
+  return !dragState && e.dataTransfer.types.includes("text/uri-list");
+}
+
+function dropExternalLinks(e, toGroupId, beforeLinkId) {
+  const urls = e.dataTransfer.getData("text/uri-list")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#") && /^https?:\/\//i.test(l));
+
+  const target = data.groups.find((g) => g.id === toGroupId);
+  if (!target || !urls.length) return;
+  const have = new Set(target.links.map((l) => l.url));
+  if (!urls.some((u) => !have.has(u))) return; // all dupes — no write
+
+  // Bookmark and link drags usually include an HTML fragment whose anchors
+  // carry the titles; address-bar drags don't, so fall back to the guesser.
+  const titles = new Map();
+  const html = e.dataTransfer.getData("text/html");
+  if (html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    for (const a of doc.querySelectorAll("a[href]")) {
+      const t = a.textContent.trim();
+      if (t) titles.set(a.href, t);
+    }
+  }
+  const titleFor = (url) => {
+    try { return titles.get(new URL(url).href); } catch { return null; }
+  };
+
+  mutate((d) => {
+    const g = d.groups.find((g) => g.id === toGroupId);
+    if (!g) return;
+    const seen = new Set(g.links.map((l) => l.url));
+    let j = beforeLinkId ? g.links.findIndex((l) => l.id === beforeLinkId) : -1;
+    if (j < 0) j = g.links.length;
+    for (const url of urls) {
+      if (seen.has(url)) continue;
+      seen.add(url);
+      g.links.splice(j++, 0, { id: uid("l"), title: titleFor(url) || titleForUrl(url), url });
+    }
+  });
+}
+
 function wireDropZone(cardsEl) {
   cardsEl.addEventListener("dragover", (e) => {
-    if (!dragState) return;
+    const external = isExternalLinkDrag(e);
+    if (!dragState && !external) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.dropEffect = external ? "copy" : "move";
     positionDropGhost(cardsEl, e.clientX, e.clientY);
   });
 
@@ -795,15 +1545,21 @@ function wireDropZone(cardsEl) {
   });
 
   cardsEl.addEventListener("drop", (e) => {
-    if (!dragState) return;
+    const external = isExternalLinkDrag(e);
+    if (!dragState && !external) return;
     e.preventDefault();
     // The ghost's position in the DOM is exactly where the card should land.
     let next = dropGhost.parentElement === cardsEl ? dropGhost.nextElementSibling : null;
     if (next && next.classList.contains("dragging")) next = next.nextElementSibling;
     const beforeLinkId = next && next.classList.contains("card") ? next.dataset.linkId : null;
     const toGroupId = cardsEl.dataset.groupId;
-    const { linkId, fromGroupId } = dragState;
     removeDropGhost();
+
+    if (external) {
+      dropExternalLinks(e, toGroupId, beforeLinkId);
+      return;
+    }
+    const { linkId, fromGroupId } = dragState;
 
     mutate((d) => {
       const from = d.groups.find((g) => g.id === fromGroupId);
@@ -865,8 +1621,18 @@ document.addEventListener("keydown", (e) => {
   const t = e.target;
   if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t.isContentEditable) return;
   e.preventDefault();
+  // A hidden search bar reveals for the duration of the search; the blur
+  // handler below re-hides it (and clears the filter) when it loses focus.
+  document.documentElement.dataset.search = "shown";
   filterInput.focus();
   filterInput.select();
+});
+
+filterInput.addEventListener("blur", () => {
+  if (localStorage.getItem(LS_SEARCH) !== "hidden") return;
+  filterInput.value = "";
+  applyFilter();
+  document.documentElement.dataset.search = "hidden";
 });
 
 // ---------- export / import ----------
@@ -887,7 +1653,14 @@ importFile.addEventListener("change", async () => {
   importFile.value = "";
   if (!file) return;
   try {
-    const parsed = JSON.parse(await file.text());
+    const text = await file.text();
+    // Browser bookmark exports (Netscape format) get the selective dialog;
+    // our own JSON backups keep the replace-everything flow.
+    if (/\.html?$/i.test(file.name) || text.trimStart().startsWith("<")) {
+      openBookmarkImport(text);
+      return;
+    }
+    const parsed = JSON.parse(text);
     if (!parsed || !Array.isArray(parsed.groups)) throw new Error("missing groups array");
     if (!window.confirm(`Replace everything with “${file.name}” (${parsed.groups.length} groups)?`)) return;
     mutate((d) => {
@@ -898,6 +1671,445 @@ importFile.addEventListener("change", async () => {
     window.alert("Import failed: " + err.message);
   }
 });
+
+// ---------- chrome bookmark import ----------
+// Chrome (and Firefox/Safari/Edge) export bookmarks as Netscape-format HTML:
+// nested <DL>s where each <DT> holds either an <H3> folder (with its child <DL>
+// inside the same <DT> — browsers never close the DT) or an <A> link. Parsed
+// with DOMParser, flattened to one section per folder, each with its own
+// destination group. Additive only — never touches existing links.
+
+const bmDialog = document.getElementById("bm-dialog");
+const bmForm = document.getElementById("bm-form");
+const bmTree = document.getElementById("bm-tree");
+const bmSubmit = document.getElementById("bm-submit");
+let bmSections = null; // [{ name, select, rows: [{ check, link }] }]
+
+function parseBookmarksHtml(html) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const rootDl = doc.querySelector("dl");
+  if (!rootDl) throw new Error("no bookmarks found — is this a bookmarks export?");
+
+  const sections = [];
+  const walk = (dl, path) => {
+    // Register the section before recursing so folders list in document order
+    // (parent above its subfolders).
+    const section = {
+      name: path.length ? path[path.length - 1] : "Imported",
+      path: path.join(" / ") || "Loose bookmarks",
+      links: [],
+    };
+    sections.push(section);
+    for (const dt of dl.children) {
+      if (dt.tagName !== "DT") continue;
+      const h3 = dt.querySelector(":scope > h3");
+      if (h3) {
+        // Child list is inside the DT (unclosed-DT parsing) or, from stricter
+        // exporters, the next sibling.
+        const sub = dt.querySelector(":scope > dl") ||
+          (dt.nextElementSibling && dt.nextElementSibling.tagName === "DL"
+            ? dt.nextElementSibling : null);
+        if (sub) walk(sub, [...path, h3.textContent.trim() || "Untitled"]);
+        continue;
+      }
+      const a = dt.querySelector(":scope > a");
+      const url = a && a.getAttribute("href");
+      if (url && /^https?:\/\//i.test(url)) {
+        section.links.push({ title: a.textContent.trim() || titleForUrl(url), url });
+      }
+    }
+  };
+  walk(rootDl, []);
+  return sections.filter((s) => s.links.length);
+}
+
+function bmHost(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
+}
+
+function bmUpdateCount() {
+  let n = 0;
+  for (const s of bmSections) {
+    let checked = 0;
+    for (const row of s.rows) if (row.check.checked) checked++;
+    n += checked;
+    s.folderCheck.checked = checked > 0 && checked === s.rows.length;
+    s.folderCheck.indeterminate = checked > 0 && checked < s.rows.length;
+  }
+  bmSubmit.disabled = n === 0;
+  bmSubmit.textContent = n ? `Import ${n} link${n === 1 ? "" : "s"}` : "Import";
+}
+
+function openBookmarkImport(html) {
+  const sections = parseBookmarksHtml(html);
+  if (!sections.length) throw new Error("no links found in that file");
+
+  const existingUrls = new Set(
+    data.groups.flatMap((g) => g.links.map((l) => l.url)),
+  );
+
+  bmTree.textContent = "";
+  bmSections = [];
+
+  for (const section of sections) {
+    const box = document.createElement("div");
+    box.className = "bm-folder";
+
+    const header = document.createElement("div");
+    header.className = "bm-folder-header";
+
+    const folderCheck = document.createElement("input");
+    folderCheck.type = "checkbox";
+    folderCheck.title = "Select folder";
+
+    const name = document.createElement("span");
+    name.className = "bm-folder-name";
+    name.textContent = section.path;
+
+    const select = document.createElement("select");
+    const optNew = document.createElement("option");
+    optNew.value = "__new__";
+    optNew.textContent = `→ new group “${section.name}”`;
+    select.appendChild(optNew);
+    for (const g of data.groups) {
+      const opt = document.createElement("option");
+      opt.value = g.id;
+      opt.textContent = `→ ${g.name}`;
+      select.appendChild(opt);
+    }
+    // A group with the folder's name already exists? Default to merging into it.
+    const match = data.groups.find(
+      (g) => g.name.toLowerCase() === section.name.toLowerCase(),
+    );
+    if (match) select.value = match.id;
+
+    header.append(folderCheck, name, select);
+    box.appendChild(header);
+
+    const rows = [];
+    for (const link of section.links) {
+      const row = document.createElement("label");
+      row.className = "bm-row";
+
+      const check = document.createElement("input");
+      check.type = "checkbox";
+
+      const title = document.createElement("span");
+      title.className = "bm-title";
+      title.textContent = link.title;
+      title.title = link.url;
+
+      const host = document.createElement("span");
+      host.className = "bm-host";
+      host.textContent = bmHost(link.url);
+
+      row.append(check, title, host);
+      const dupe = existingUrls.has(link.url);
+      if (dupe) {
+        row.classList.add("bm-dupe");
+        host.textContent = "already added";
+      }
+      box.appendChild(row);
+      rows.push({ check, link, dupe });
+    }
+
+    folderCheck.addEventListener("change", () => {
+      // Folder toggle skips already-added links; they stay individually checkable.
+      for (const row of rows) row.check.checked = folderCheck.checked && !row.dupe;
+      bmUpdateCount();
+    });
+
+    bmTree.appendChild(box);
+    bmSections.push({ name: section.name, select, folderCheck, rows });
+  }
+
+  bmUpdateCount();
+  bmDialog.showModal();
+}
+
+bmTree.addEventListener("change", (e) => {
+  if (e.target.matches('.bm-row input[type="checkbox"]')) bmUpdateCount();
+});
+
+bmForm.addEventListener("submit", () => {
+  const sections = bmSections;
+  bmSections = null;
+  mutate((d) => {
+    for (const s of sections) {
+      const chosen = s.rows.filter((r) => r.check.checked).map((r) => r.link);
+      if (!chosen.length) continue;
+
+      let group;
+      if (s.select.value === "__new__") {
+        const existing = d.groups.find(
+          (g) => g.name.toLowerCase() === s.name.toLowerCase(),
+        );
+        group = existing || { id: uid("g"), name: s.name, links: [] };
+        if (!existing) d.groups.push(group);
+      } else {
+        group = d.groups.find((g) => g.id === s.select.value);
+        if (!group) continue;
+      }
+
+      const have = new Set(group.links.map((l) => l.url));
+      for (const link of chosen) {
+        if (have.has(link.url)) continue;
+        have.add(link.url);
+        group.links.push({ id: uid("l"), title: link.title, url: link.url });
+      }
+    }
+  });
+});
+
+bmForm.querySelector('[data-action="cancel"]').addEventListener("click", () => {
+  bmSections = null;
+  bmDialog.close();
+});
+
+// ---------- bulk add: parsing + picker ----------
+// One paste box covers hand-written group + URL lists (the original bulk-add
+// syntax) and open-tab dumps from copy-tabs extensions — web pages can't
+// enumerate the browser's tabs, so tab import is paste-driven by design.
+// Parsed items flow through a picker (checkbox per link, destination group per
+// link), so nothing lands on the board sight unseen. Additive only.
+
+const pickDialog = document.getElementById("pick-dialog");
+const pickForm = document.getElementById("pick-form");
+const pickTree = document.getElementById("pick-tree");
+const pickSubmit = document.getElementById("pick-submit");
+let pickRows = null; // [{ check, select, item, dupe }]
+let pickAllCheck = null;
+let pickNewNames = null; // pasted group names with no existing group
+
+const BULK_URL_RE = /https?:\/\/[^\s"<>]+/i;
+const BULK_SEP_LEAD = /^[\s\-–—|:·,()[\]'"“”]+/;
+const BULK_SEP_TRAIL = /[\s\-–—|:·,()[\]'"“”]+$/;
+
+// Accepts bare URLs (scheme-less domains too), markdown [Title](url), and lines
+// with a URL anywhere in them (the remainder, minus separator punctuation,
+// becomes the title). A line that isn't a URL starts a group — unless every one
+// of them directly precedes exactly one URL line, the Title/URL pair shape
+// copy-tabs tools emit, in which case they're read as titles instead. The
+// picker shows the interpretation before anything is added, so the ambiguous
+// cases stay correctable. Duplicate URLs within one paste collapse to the first.
+function parseBulkText(text) {
+  const entries = [];
+  for (let line of text.split("\n")) {
+    line = line.trim().replace(/^[-*•]\s+/, "");
+    if (!line) continue;
+    const md = /^\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)$/.exec(line);
+    if (md) { entries.push({ title: md[1].trim() || null, url: md[2] }); continue; }
+    const m = BULK_URL_RE.exec(line);
+    if (m) {
+      const around = (line.slice(0, m.index) + " " + line.slice(m.index + m[0].length))
+        .replace(BULK_SEP_LEAD, "").replace(BULK_SEP_TRAIL, "").trim();
+      entries.push({ title: around || null, url: m[0].replace(/[.,;]+$/, "") });
+      continue;
+    }
+    if (looksLikeUrl(line)) { entries.push({ title: null, url: "https://" + line }); continue; }
+    entries.push({ plain: line });
+  }
+
+  const plains = entries.filter((e) => e.plain).length;
+  const pairMode = plains >= 2 && plains === entries.length - plains &&
+    entries.every((e, i) => !e.plain || (entries[i + 1] && entries[i + 1].url));
+
+  const items = [];
+  const seen = new Set();
+  let groupName = null;
+  let pendingTitle = null;
+  for (const e of entries) {
+    if (e.plain) {
+      if (pairMode) pendingTitle = e.plain;
+      else groupName = e.plain;
+      continue;
+    }
+    if (seen.has(e.url)) continue;
+    seen.add(e.url);
+    items.push({ title: e.title || pendingTitle || titleForUrl(e.url), url: e.url, groupName });
+    pendingTitle = null;
+  }
+  return items;
+}
+
+function pickGroupSelect() {
+  const select = document.createElement("select");
+  for (const name of pickNewNames) {
+    const opt = document.createElement("option");
+    opt.value = "__new__:" + name;
+    opt.textContent = `→ new group “${name}”`;
+    select.appendChild(opt);
+  }
+  for (const g of data.groups) {
+    const opt = document.createElement("option");
+    opt.value = g.id;
+    opt.textContent = "→ " + g.name;
+    select.appendChild(opt);
+  }
+  return select;
+}
+
+function pickDefaultValue(groupName) {
+  const name = groupName || "Imported";
+  const match = data.groups.find((g) => g.name.toLowerCase() === name.toLowerCase());
+  return match ? match.id : "__new__:" + name;
+}
+
+function pickUpdateCount() {
+  let n = 0;
+  for (const r of pickRows) if (r.check.checked) n++;
+  pickAllCheck.checked = n > 0 && n === pickRows.length;
+  pickAllCheck.indeterminate = n > 0 && n < pickRows.length;
+  pickSubmit.disabled = n === 0;
+  pickSubmit.textContent = n ? `Add ${n} link${n === 1 ? "" : "s"}` : "Add";
+}
+
+function openBulkPick(items) {
+  const existingUrls = new Set(
+    data.groups.flatMap((g) => g.links.map((l) => l.url)),
+  );
+
+  // Pasted group names (plus the "Imported" fallback) that don't match an
+  // existing group become "new group" options, in first-mention order.
+  pickNewNames = [];
+  for (const item of items) {
+    const name = item.groupName || "Imported";
+    const known = data.groups.some((g) => g.name.toLowerCase() === name.toLowerCase())
+      || pickNewNames.some((n) => n.toLowerCase() === name.toLowerCase());
+    if (!known) pickNewNames.push(name);
+  }
+
+  pickTree.textContent = "";
+  pickRows = [];
+
+  const header = document.createElement("div");
+  header.className = "bm-folder-header";
+
+  pickAllCheck = document.createElement("input");
+  pickAllCheck.type = "checkbox";
+  pickAllCheck.title = "Select all";
+  pickAllCheck.addEventListener("change", () => {
+    // Select-all skips already-added links; they stay individually checkable.
+    for (const r of pickRows) r.check.checked = pickAllCheck.checked && !r.dupe;
+    pickUpdateCount();
+  });
+
+  const name = document.createElement("span");
+  name.className = "bm-folder-name";
+  name.textContent = items.length + " link" + (items.length === 1 ? "" : "s");
+
+  // Stamps every row's destination in one go, then snaps back to its label.
+  const allSelect = pickGroupSelect();
+  const optAll = document.createElement("option");
+  optAll.value = "";
+  optAll.textContent = "Set every group to…";
+  allSelect.insertBefore(optAll, allSelect.firstChild);
+  allSelect.value = "";
+  allSelect.addEventListener("change", () => {
+    if (!allSelect.value) return;
+    for (const r of pickRows) r.select.value = allSelect.value;
+    allSelect.value = "";
+  });
+
+  header.append(pickAllCheck, name, allSelect);
+  pickTree.appendChild(header);
+
+  for (const item of items) {
+    const row = document.createElement("label");
+    row.className = "bm-row";
+
+    const check = document.createElement("input");
+    check.type = "checkbox";
+
+    const title = document.createElement("span");
+    title.className = "bm-title";
+    title.textContent = item.title;
+    title.title = item.url;
+
+    const host = document.createElement("span");
+    host.className = "bm-host";
+    host.textContent = bmHost(item.url);
+
+    const select = pickGroupSelect();
+    select.value = pickDefaultValue(item.groupName);
+
+    const dupe = existingUrls.has(item.url);
+    if (dupe) {
+      row.classList.add("bm-dupe");
+      host.textContent = "already added";
+    }
+    // A paste is already a choice, so non-dupes start checked (the bookmark
+    // import starts unchecked; there the point is culling a big export).
+    check.checked = !dupe;
+
+    row.append(check, title, host, select);
+    pickTree.appendChild(row);
+    pickRows.push({ check, select, item, dupe });
+  }
+
+  pickUpdateCount();
+  pickDialog.showModal();
+}
+
+pickTree.addEventListener("change", (e) => {
+  if (e.target.matches('.bm-row input[type="checkbox"]')) pickUpdateCount();
+});
+
+pickForm.addEventListener("submit", () => {
+  const rows = pickRows;
+  pickRows = null;
+  if (!rows || !rows.some((r) => r.check.checked)) return;
+
+  mutate((d) => {
+    const created = new Map(); // lower-cased name → group made this pass
+    const usedTitles = new Map(); // per-group title → count, for "Supabase 2" dedupe
+    const seeded = new Set(); // group ids whose existing titles are already counted
+
+    const resolveGroup = (val) => {
+      if (!val.startsWith("__new__:")) return d.groups.find((g) => g.id === val) || null;
+      const groupName = val.slice("__new__:".length);
+      const key = groupName.toLowerCase();
+      let g = created.get(key)
+        || d.groups.find((g) => g.name.toLowerCase() === key);
+      if (!g) {
+        g = { id: uid("g"), name: groupName, links: [] };
+        d.groups.push(g);
+      }
+      created.set(key, g);
+      return g;
+    };
+
+    for (const r of rows) {
+      if (!r.check.checked) continue;
+      const g = resolveGroup(r.select.value);
+      if (!g) continue;
+      if (g.links.some((l) => l.url === r.item.url)) continue;
+
+      // Seed the dedupe counter with the group's existing titles so a second
+      // "Supabase" added to a group that already has one becomes "Supabase 2".
+      if (!seeded.has(g.id)) {
+        seeded.add(g.id);
+        for (const l of g.links) {
+          const key = g.id + " " + l.title.replace(/ \d+$/, "");
+          usedTitles.set(key, (usedTitles.get(key) || 0) + 1);
+        }
+      }
+      let title = r.item.title;
+      const key = g.id + " " + title;
+      const n = (usedTitles.get(key) || 0) + 1;
+      usedTitles.set(key, n);
+      if (n > 1) title += " " + n;
+
+      g.links.push({ id: uid("l"), title, url: r.item.url });
+    }
+  });
+});
+
+pickForm.querySelector('[data-action="cancel"]').addEventListener("click", () => {
+  pickRows = null;
+  pickDialog.close();
+});
+
 
 // ---------- init ----------
 

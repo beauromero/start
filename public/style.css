@@ -184,6 +184,9 @@ html[data-theme="editorial"] #filter { background: var(--card-hover); }
 #filter:focus { border-color: var(--accent-1); }
 #filter::placeholder { color: var(--text-dim); }
 
+/* Topbar-menu toggle; pressing / reveals the bar until it loses focus */
+html[data-search="hidden"] #filter { display: none; }
+
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -207,7 +210,54 @@ html[data-theme="editorial"] .btn { background: var(--card-hover); }
 .btn-quiet { color: var(--text-dim); }
 .btn-quiet:hover { color: var(--text); }
 
-#mode-toggle { font-size: 15px; line-height: 1; padding: 7px 10px; }
+/* ---------- menus ---------- */
+/* The topbar ⋯ menu drops from its wrapper; group ⋯ menus are .floating
+   (fixed, positioned by JS so they escape scrolling layout containers). */
+
+.menu-wrap { position: relative; }
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 176px;
+  padding: 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.menu[hidden] { display: none; }
+.menu.floating { position: fixed; top: auto; right: auto; }
+html[data-theme="minimal"] .menu,
+html[data-theme="editorial"] .menu,
+html[data-theme="trello"] .menu { background: var(--bg); border-color: var(--text-dim); }
+html[data-theme="momentum"] .menu {
+  background: #1c1f26;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.menu button {
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.menu button:hover { background: var(--card-hover); }
+.menu button.danger { color: var(--accent-2); }
+.menu hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 5px 4px;
+}
 
 /* Sync problems surface as a small warning chip; all-good is invisible. */
 .sync-warn {
@@ -266,7 +316,8 @@ input.group-name {
   opacity: 0;
 }
 .group-header:hover .group-controls,
-.group-controls:focus-within { opacity: 1; }
+.group-controls:focus-within,
+.group-controls:has(.menu-open) { opacity: 1; }
 
 .icon-btn {
   background: none;
@@ -280,20 +331,6 @@ input.group-name {
 }
 .icon-btn:hover { color: var(--text); background: var(--card-hover); }
 .icon-btn.danger:hover { color: var(--accent-2); }
-
-.color-btn {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: none;
-  padding: 0;
-  margin: 0 4px;
-  cursor: pointer;
-  background: var(--group-accent, var(--accent-1));
-  flex-shrink: 0;
-  align-self: center;
-}
-.color-btn:hover { transform: scale(1.2); }
 
 .group-bar {
   height: 5px;
@@ -372,6 +409,7 @@ input.group-name {
   background: var(--tile-color, var(--group-accent, var(--accent-1)));
 }
 .card-tile.emoji { background: none; font-size: 18px; }
+.card-tile.icon svg { width: 15px; height: 15px; display: block; }
 
 .card-title {
   flex: 1;
@@ -403,6 +441,9 @@ input.group-name {
 html[data-theme="trello"] .card-add,
 html[data-theme="minimal"] .card-add { border-color: var(--text-dim); opacity: 0.4; }
 .card-add:hover { color: var(--text); border-color: var(--text-dim); opacity: 1; }
+
+/* Style-dialog toggle; the group ⋯ menu keeps its own Add link entry */
+html[data-addlink="hidden"] .card-add { display: none; }
 
 .card.filtered-out { display: none; }
 .card.first-match { border-color: var(--group-accent, var(--accent-1)); }
@@ -480,6 +521,95 @@ html[data-theme="momentum"] .board { position: relative; }
   font-size: 26px;
   font-weight: 400;
 }
+#momentum-quote {
+  margin: 16px auto 0;
+  max-width: 640px;
+  font-size: 15px;
+  font-style: italic;
+  opacity: 0.92;
+  text-wrap: balance;
+}
+.momentum-quote-author {
+  font-style: normal;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+/* Background controls: quiet chips in the corner, full opacity on hover.
+   They live inside the hero so they vanish with the theme. */
+.momentum-controls {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 5;
+}
+.momentum-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.45;
+  text-shadow: none;
+}
+.momentum-btn:hover { opacity: 1; }
+.momentum-btn.active {
+  opacity: 1;
+  border-color: rgba(255, 255, 255, 0.7);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+/* Momentum settings panel */
+#momentum-dialog { width: min(540px, 92vw); }
+
+.momentum-thumbs {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+
+.momentum-thumb {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: 8px;
+  background-size: cover;
+  background-position: center;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+.momentum-thumb:hover { border-color: var(--text-dim); }
+.momentum-thumb.current { border-color: var(--accent-1); }
+
+.momentum-fav {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  border: 0;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.momentum-fav:hover { opacity: 1; }
+.momentum-fav.faved { color: #f6c177; opacity: 1; }
+
+#momentum-server-pin { margin-bottom: 2px; }
+#momentum-server-pin.active { border-color: var(--accent-1); color: var(--text); }
 
 html[data-theme="momentum"] .card,
 html[data-theme="momentum"] .btn,
@@ -511,7 +641,10 @@ html[data-layout="grid"] .group {
   padding: 12px 14px;
 }
 
-/* columns: the whole board scrolls sideways, groups are fixed-width columns */
+/* columns: the whole board scrolls sideways, groups are fixed-width columns.
+   The topbar drops its centered max-width so it lines up with the columns,
+   which span the whole screen. */
+html[data-layout="columns"] .topbar { max-width: none; }
 html[data-layout="columns"] .board {
   display: flex;
   align-items: flex-start;
@@ -559,6 +692,34 @@ html[data-layout="grid"] .group {
 
 /* ---------- density ---------- */
 
+html[data-density="medium"] {
+  --density-scale: 0.85;
+  --card-min: 205px;
+  --cards-gap: 8px;
+}
+html[data-density="medium"][data-layout="grid"] { --card-min: 175px; }
+html[data-density="medium"] .board { padding-top: 10px; }
+html[data-density="medium"][data-layout="vertical"] .group { margin-top: 28px; }
+html[data-density="medium"] .group-bar { height: 4px; margin: 6px 0 12px; }
+html[data-density="medium"] .cards { min-height: 44px; }
+html[data-density="medium"] .card {
+  padding: 8px 10px;
+  gap: 9px;
+}
+html[data-density="medium"] .card-favicon,
+html[data-density="medium"] .card-tile {
+  width: 21px;
+  height: 21px;
+  font-size: 12px;
+}
+html[data-density="medium"] .card-tile.emoji { font-size: 16px; }
+html[data-density="medium"] .card-tile.icon svg { width: 13px; height: 13px; }
+html[data-density="medium"] .card-add { padding: 8px 10px; }
+html[data-density="medium"] .drop-ghost { min-height: 37px; }
+html[data-density="medium"][data-layout="rows"] .card { flex-basis: 205px; }
+html[data-density="medium"][data-layout="rows"] .drop-ghost { flex-basis: 205px; }
+html[data-density="medium"][data-layout="columns"] .group { flex-basis: 280px; }
+
 html[data-density="compact"] {
   --density-scale: 0.72;
   --card-min: 180px;
@@ -582,6 +743,7 @@ html[data-density="compact"] .card-tile {
   font-size: 11px;
 }
 html[data-density="compact"] .card-tile.emoji { font-size: 14px; }
+html[data-density="compact"] .card-tile.icon svg { width: 12px; height: 12px; }
 html[data-density="compact"] .card-title { font-size: 13px; }
 html[data-density="compact"] .card-add { padding: 6px 9px; font-size: 13px; }
 html[data-density="compact"] .drop-ghost { min-height: 32px; }
@@ -659,6 +821,35 @@ dialog .hint {
 
 .icon-fields { margin-bottom: 4px; }
 
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  margin: 8px 0 4px;
+}
+.icon-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.icon-choice svg { width: 16px; height: 16px; display: block; }
+.icon-choice:hover {
+  border-color: var(--border-hover);
+  color: var(--text);
+}
+.icon-choice.selected {
+  border-color: var(--accent-1);
+  background: var(--card-hover);
+  color: var(--text);
+}
+
 .swatch-row {
   display: flex;
   flex-wrap: wrap;
@@ -686,6 +877,13 @@ dialog .hint {
   cursor: pointer;
 }
 
+.default-view-row {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+.default-view-row .btn { font-size: 12px; padding: 6px 10px; }
+
 .color-dialog-row {
   display: flex;
   align-items: center;
@@ -700,10 +898,177 @@ dialog .hint {
   gap: 8px;
   margin-top: 6px;
 }
+/* Delete sits alone on the left, away from Cancel/Save */
+.dialog-actions .btn-danger { margin-right: auto; }
+.dialog-actions .btn-danger:hover { color: var(--accent-2); }
+
+/* ---------- bulk edit ---------- */
+
+#edit-dialog { width: min(860px, 95vw); }
+
+/* Compact search box, overriding the block-level dialog input rules */
+dialog #edit-filter {
+  margin: 0 0 10px;
+  font-size: 13px;
+  padding: 6px 10px;
+}
+
+.edit-cols, .edit-row {
+  display: grid;
+  grid-template-columns: 96px minmax(120px, 1fr) minmax(160px, 1.5fr) 140px;
+  gap: 8px;
+  align-items: center;
+}
+
+.edit-cols {
+  padding: 0 10px 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.edit-rows {
+  max-height: 60vh;
+  overflow-y: auto;
+  margin: 0 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.edit-group-header {
+  padding: 8px 10px 6px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--card);
+  font-weight: 600;
+  font-size: 13px;
+}
+html[data-theme="minimal"] .edit-group-header,
+html[data-theme="editorial"] .edit-group-header,
+html[data-theme="trello"] .edit-group-header { background: var(--bg); }
+.edit-group-header + .edit-group-header { margin-top: 0; }
+.edit-row + .edit-group-header { border-top: 1px solid var(--border); }
+
+.edit-row { padding: 3px 10px; }
+.edit-row.edited { box-shadow: inset 3px 0 0 var(--accent-1); }
+
+.edit-icon-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.edit-icon-cell .edit-glyph { width: 52px; text-align: center; }
+.edit-icon-cell .color-input { width: 30px; height: 26px; flex-shrink: 0; }
+
+/* Compact inputs/selects, overriding the block-level dialog rules */
+dialog .edit-row input[type="text"],
+dialog .edit-row select {
+  margin: 0;
+  font-size: 12px;
+  padding: 5px 7px;
+}
+
+/* ---------- bookmark import ---------- */
+
+#bm-dialog { width: min(580px, 92vw); }
+
+.bm-tree {
+  max-height: 55vh;
+  overflow-y: auto;
+  margin: 0 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.bm-folder + .bm-folder { border-top: 1px solid var(--border); }
+
+.bm-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  z-index: 1;
+}
+html[data-theme="minimal"] .bm-folder-header,
+html[data-theme="editorial"] .bm-folder-header,
+html[data-theme="trello"] .bm-folder-header { background: var(--bg); }
+
+.bm-folder-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Compact inline select, overriding the block-level dialog select rules */
+dialog .bm-folder-header select {
+  display: inline-block;
+  width: auto;
+  max-width: 45%;
+  margin: 0;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.bm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 28px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.bm-row:hover { background: var(--card-hover); }
+.bm-row input { margin: 0; flex-shrink: 0; }
+
+.bm-title {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bm-host {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.bm-dupe .bm-title { color: var(--text-dim); }
+.bm-dupe .bm-host { font-style: italic; }
+
+/* ---------- bulk add picker ---------- */
+
+#pick-dialog { width: min(640px, 92vw); }
+
+/* Picker rows aren't nested under folders, so no indent; each row carries its
+   own compact destination select (the header's set-all select matches). */
+#pick-tree .bm-row { padding-left: 10px; }
+
+dialog #pick-tree select {
+  display: inline-block;
+  width: auto;
+  max-width: 40%;
+  margin: 0;
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 3px 6px;
+}
 
 /* ---------- motion ---------- */
 
 @media (prefers-reduced-motion: no-preference) {
-  .btn, .card, .icon-btn, #filter { transition: background 120ms, border-color 120ms, color 120ms; }
-  .color-btn, .swatch { transition: transform 100ms; }
+  .btn, .card, .icon-btn, .menu button, #filter { transition: background 120ms, border-color 120ms, color 120ms; }
+  .swatch { transition: transform 100ms; }
 }
