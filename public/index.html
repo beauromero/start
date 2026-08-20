@@ -79,11 +79,8 @@
       <h2>Momentum</h2>
       <label>Background photo</label>
       <div id="momentum-thumbs" class="momentum-thumbs"></div>
-      <p class="hint">Click a photo to show it now. ★ favorites are synced — when you
-        have any, the daily rotation and shuffle only use them, on every device.</p>
-      <button type="button" class="btn btn-quiet" id="momentum-server-pin"></button>
-      <p class="hint">A synced pin shows one photo everywhere; the 📌 chip pins
-        per device and wins on that device.</p>
+      <p class="hint">Click a photo to show it now. ★ favorites become the
+        rotation and shuffle pool.</p>
       <label class="check-label">
         <input id="momentum-show-clock" type="checkbox" checked> Show clock
       </label>
@@ -158,10 +155,10 @@
       <p class="hint">Change titles, URLs, icons, and groups across the whole board,
         then save once. Empty icon = automatic favicon; emoji, 1–2 letters, or a
         built-in icon token like <code>:star:</code> work. Moved links land at the end
-        of their new group.</p>
+        of their new group. ✕ marks a link for deletion — click it again to keep it.</p>
       <input id="edit-filter" type="search" placeholder="Filter links…" autocomplete="off" spellcheck="false">
       <div class="edit-cols" aria-hidden="true">
-        <span class="edit-col-icon">Icon</span><span>Title</span><span>URL</span><span>Group</span>
+        <span class="edit-col-icon">Icon</span><span>Title</span><span>URL</span><span>Group</span><span></span>
       </div>
       <div id="edit-rows" class="edit-rows"></div>
       <div class="dialog-actions">
@@ -229,7 +226,10 @@
         <input id="addlink-toggle" type="checkbox" checked>
         Show “+ Add link” with the links
       </label>
-      <p class="hint">When hidden, each group’s ⋯ menu still has Add link.</p>
+      <label class="check-label">
+        <input id="stylesync-toggle" type="checkbox">
+        Sync style across devices
+      </label>
       <div class="default-view-row">
         <button type="button" class="btn btn-quiet" id="save-default"
                 title="Store this style in the synced data so any device can load it">Save as default view</button>

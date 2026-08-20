@@ -50,6 +50,8 @@ One JSON blob under KV key `links:v1`:
 - Mutations mark state dirty; a 1.5s debounced PUT flushes. Offline/no-secret keeps working
   locally — the dirty copy pushes next time a save succeeds.
 - Reconcile on load: server `updatedAt` newer → adopt server; local newer → push local.
+  (Extended 2026-08-20 with focus-triggered pulls, compare-and-swap pushes, and conflict
+  merging — see "Multi-window-safe sync & style sync" below.)
 
 ## Appearance & customization (added 2026-08-18)
 
@@ -207,6 +209,12 @@ One JSON blob under KV key `links:v1`:
   form. Empty icon glyph deletes the `icon` key (back to automatic favicon).
 - **Group membership only, not group properties.** Group renames/colors/reordering stay in
   their existing inline affordances; this screen is about links.
+- **Deleting (added 2026-08-20).** Each row ends in a ✕ toggle that *marks* the link for
+  deletion — struck-through with a red edge, undoable by clicking again — rather than
+  deleting immediately, matching the screen's stage-everything-then-save-once model. Marks
+  count as unsaved changes (backdrop dismiss stays blocked) and the Save button spells out
+  the split ("Save 2 changes, delete 1" / "Delete 3 links"). Saving with marks asks one
+  confirm for the batch; cancelling it keeps the dialog open with marks intact.
 
 ## Decluttered chrome (added 2026-08-19)
 
@@ -263,13 +271,71 @@ One JSON blob under KV key `links:v1`:
   along the flow axis, which is stable under the ghost's own layout shifts and has no
   dead zones.
 
-## Choices worth noting
+## Favicon resolver (added 2026-08-20)
 
-- **Groups reorder via ◂ ▸ buttons, cards via drag-and-drop.** Dragging whole groups while
-  cards are also draggable is fiddly (nested drag targets); buttons are unambiguous and rare.
+- **Why not just Google's service.** `s2/favicons` is keyed by hostname only, so every
+  `docs.google.com` link gets the same "G" (Sheets/Docs icons are per-path), and sites its
+  crawler can't reach (prosebox.net sits behind a Cloudflare bot challenge) get a generic
+  globe. Worse, the globe arrives as a valid image body on a 404, and browsers render 404
+  images — so `onerror` never fires and the client can't detect the miss (CORS hides the
+  status too). Chrome bookmarks don't have this problem because Chrome saves the icon the
+  page itself declared when you visited it; a web page can't read that database.
+- **`GET /api/icon?url=…`** (Pages Function) resolves icons server-side, where statuses
+  *are* visible: a path-aware override table for Google products (their per-path icons
+  live at stable `gstatic.com/images/branding` URLs) → Google s2 → DuckDuckGo `ip3`
+  (which had prosebox when Google didn't) → the site's own `/favicon.ico`. First genuine
+  `200 image/*` wins and is proxied through with a week of cache; a miss everywhere is an
+  *empty* 404, which does fire the client's `onerror`.
+- **Client chain.** Cards try `/api/icon`, then the site's `/favicon.ico` directly from
+  the browser (that request carries the user's cookies and bot-wall clearance, so it can
+  succeed where server-side fetches are blocked), then the letter tile as before.
+
+## Multi-window-safe sync & style sync (added 2026-08-20)
+
+Pure last-write-wins lost data in practice: a long-open window that made any edit stamped
+its stale copy with the newest `updatedAt` and clobbered links added from another
+window/profile. Three fixes, layered:
+
+- **Pull on focus.** `pullAndReconcile()` re-runs on `visibilitychange`/`focus` (throttled
+  to 3s), so a returned-to window refreshes before you edit in it. Same-profile windows
+  additionally sync instantly through the `storage` event, no network needed. If an edit
+  dialog is open when a newer copy arrives, the adopt is deferred until the dialog closes
+  (`pendingPull`) so the UI isn't yanked mid-edit.
+- **Compare-and-swap push.** Every PUT sends `X-Base-Rev` — the server `updatedAt` this
+  window last reconciled against (`startpage:baserev`). The Function rejects a mismatch
+  with `409` + the current blob. Header absent = legacy unconditional write. KV is
+  eventually consistent so this is best-effort CAS, but a single user hits the same edge
+  PoP where reads see their own writes.
+- **Union-by-id merge on conflict.** On `409` (or a pull that finds both sides changed),
+  `mergeData()` keeps local versions of items existing on both sides and appends
+  server-only groups/links, then retries (max 3). Tradeoff accepted: a concurrent delete
+  can resurrect once (delete again sticks); that beats silently losing adds. Non-group
+  fields (`style`, `momentum`, `defaultView`) take the local side wholesale.
+- **Style sync is opt-in per device.** "Sync style across devices" checkbox in the Style
+  dialog (`startpage:stylesync`). When on, the five style settings (theme, layout,
+  density, add-link, search bar — mode stays per-device) mirror `data.style` in the
+  synced blob: any change publishes, any pull applies. Turning it on adopts the existing
+  synced style if present, else seeds it from this device. Off = old behavior; the
+  one-shot "Save/Load default view" buttons remain for cherry-picking a look without
+  live-following it.
+- **Momentum's photo choice follows the same toggle.** The separate "Pin this photo on
+  every device" button is gone — two pin concepts (device 📌 vs server pin) was the
+  confusing part. Now the one 📌 pin and the shuffle/thumbnail choice (pin + rotation
+  offset) read/write `data.momentum` when style sync is on (same photo everywhere) and
+  localStorage when off. Sync-off devices ignore any synced pin. Favorites still sync
+  unconditionally — they're curation, like the links. Lost mixed case, accepted: "same
+  theme everywhere, different photo per device."
+
+- **Groups reorder by dragging their header** (added 2026-08-20; the ⋯-menu ◂ ▸ entries
+  remain). The header-as-handle sidesteps the nested-drag-target problem that originally
+  argued for buttons only: cards drag from the card body, groups drag from the header, and
+  the two never overlap. A board-level ghost (`.group-ghost`) marks the insertion point
+  using the same greedy flow-aware anchor test as cards, extended with a column-major case
+  for the grid layout's CSS multi-columns. `setDragImage(section)` shows the whole group
+  while dragging; the source hides a frame later, same as cards.
 - **HTML5 drag-and-drop, no library.** Insert position computed from pointer x/y against card
   midpoints; works across groups.
-- **Google favicon service** (`s2/favicons?sz=64`) with an `onerror` swap to a letter tile
-  colored by the group accent.
+- **Favicons via `/api/icon`** (see "Favicon resolver" above; originally bare
+  `s2/favicons?sz=64`) with an `onerror` swap to a letter tile colored by the group accent.
 - **`wrangler.jsonc`** (not toml) with `pages_build_output_dir` — current wrangler idiom for
   Pages, and the config travels with the repo.

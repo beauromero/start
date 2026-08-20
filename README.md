@@ -2,7 +2,7 @@
 
 A self-hosted new tab page. Groups of links, synced across every browser profile and
 device you use, served from Cloudflare Pages for free. No accounts, no framework, no
-build step — three static files and one 55-line serverless function.
+build step — three static files and a pair of small serverless functions.
 
 ## Why
 
@@ -16,17 +16,19 @@ page, and edits made anywhere show up everywhere.
 - **Groups of links** with drag-and-drop reordering, cross-group drags, and a
   what-you-see-is-what-you-get drop placeholder
 - **Sync** across profiles/devices via Cloudflare KV — writes gated by a shared
-  secret, reconciled by last-write-wins timestamp
+  secret. Long-open windows re-sync on focus, saves are compare-and-swapped, and
+  concurrent edits from different windows merge instead of clobbering each other
 - **Instant loads** — renders from a localStorage cache first, fetches KV in the
   background; keeps working offline and pushes when it can
 - **Themes** — Bold, Trello, Minimal, Editorial (serif), and Momentum (daily-rotating
   photo background with clock + greeting, plus a settings panel: shuffle or pin the
-  photo per device or across every device, star favorite photos to rotate through
-  just those, and show/hide the clock, greeting, and a daily inspirational quote)
+  photo, star favorite photos to rotate through just those, and show/hide the clock,
+  greeting, and a daily inspirational quote)
 - **Layouts** — stacked sections, Trello-style columns, full-width rows, or a
   Toby-style masonry grid; plus comfortable/medium/compact density and
-  light/dark/system mode. A "default view" can be saved into the synced data and
-  loaded on any other device with one click
+  light/dark/system mode. Style can stay per-device, follow you everywhere with the
+  "Sync style across devices" toggle (which also scopes the Momentum photo pin), or
+  be saved as a one-shot "default view" loadable on any other device
 - **Customization** — per-group accent colors, custom link icons (emoji or letter
   tiles), automatic favicons with fallback
 - **Bulk add** — paste URLs and group names, markdown links, "Title — URL" lines,
@@ -47,8 +49,9 @@ page, and edits made anywhere show up everywhere.
 - `functions/api/links.js` — a Cloudflare Pages Function serving `GET`/`PUT /api/links`,
   backed by a KV namespace
 - One JSON blob holds everything; the client saves locally first and debounces a PUT.
-  Conflict resolution is "newest `updatedAt` wins" — plenty for one person across
-  a handful of profiles.
+  Saves send the revision they were based on; the server rejects stale writes with a
+  `409` and the client merges by id and retries, so links added in one window survive
+  edits made in another. Windows also re-pull on focus.
 
 Design decisions and the data model are documented in [DECISIONS.md](DECISIONS.md).
 

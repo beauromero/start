@@ -389,6 +389,26 @@ input.group-name {
   background: color-mix(in srgb, var(--group-accent, var(--accent-1)) 12%, transparent);
 }
 
+/* Whole-group drag: header is the handle, ghost marks where the group lands */
+.group-header { cursor: grab; }
+.group.drag-hidden { display: none; }
+.group-ghost {
+  min-height: 90px;
+  margin-top: 36px;
+  border: 2px dashed var(--accent-1);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent-1) 8%, transparent);
+}
+html[data-layout="columns"] .group-ghost {
+  flex: 0 0 300px;
+  margin-top: 0;
+}
+html[data-layout="rows"] .group-ghost { margin-top: 20px; }
+html[data-layout="grid"] .group-ghost {
+  break-inside: avoid;
+  margin: 0 0 16px;
+}
+
 .card-favicon {
   width: 24px;
   height: 24px;
@@ -607,9 +627,6 @@ html[data-theme="momentum"] .board { position: relative; }
 }
 .momentum-fav:hover { opacity: 1; }
 .momentum-fav.faved { color: #f6c177; opacity: 1; }
-
-#momentum-server-pin { margin-bottom: 2px; }
-#momentum-server-pin.active { border-color: var(--accent-1); color: var(--text); }
 
 html[data-theme="momentum"] .card,
 html[data-theme="momentum"] .btn,
@@ -915,7 +932,7 @@ dialog #edit-filter {
 
 .edit-cols, .edit-row {
   display: grid;
-  grid-template-columns: 96px minmax(120px, 1fr) minmax(160px, 1.5fr) 140px;
+  grid-template-columns: 96px minmax(120px, 1fr) minmax(160px, 1.5fr) 140px 26px;
   gap: 8px;
   align-items: center;
 }
@@ -953,6 +970,17 @@ html[data-theme="trello"] .edit-group-header { background: var(--bg); }
 
 .edit-row { padding: 3px 10px; }
 .edit-row.edited { box-shadow: inset 3px 0 0 var(--accent-1); }
+
+/* Row marked for deletion by its ✕ toggle */
+.edit-row .edit-delete { color: var(--text-dim); }
+.edit-row .edit-delete:hover,
+.edit-row.deleting .edit-delete { color: var(--accent-2); }
+.edit-row.deleting { box-shadow: inset 3px 0 0 var(--accent-2); }
+.edit-row.deleting input,
+.edit-row.deleting select {
+  text-decoration: line-through;
+  opacity: 0.45;
+}
 
 .edit-icon-cell {
   display: flex;

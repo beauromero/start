@@ -11,6 +11,8 @@ const LS_ADDLINK = "startpage:addlink";
 const LS_SEARCH = "startpage:search";
 const LS_MOMENTUM = "startpage:momentum";
 const LS_QUOTE = "startpage:quote";
+const LS_BASEREV = "startpage:baserev";
+const LS_STYLESYNC = "startpage:stylesync";
 const API = "/api/links";
 const PUSH_DEBOUNCE_MS = 1500;
 const ACCENTS = ["#a78bfa", "#ff7f6e", "#4fd1c5", "#7bd88f", "#f6c177"];
@@ -68,6 +70,7 @@ const searchToggle = document.getElementById("search-toggle");
 const addLinkCheck = document.getElementById("addlink-toggle");
 const loadDefaultBtn = document.getElementById("load-default");
 const saveDefaultBtn = document.getElementById("save-default");
+const styleSyncCheck = document.getElementById("stylesync-toggle");
 
 // ---------- persistence ----------
 
@@ -96,6 +99,19 @@ function setDirty(v) {
   updateStatusDot();
 }
 
+// The updatedAt this window's copy was last reconciled against the server at.
+// Sent as X-Base-Rev on every push; a mismatch means another window pushed in
+// between, and the server answers 409 with its copy so we can merge instead of
+// clobbering it.
+function getBaseRev() {
+  return localStorage.getItem(LS_BASEREV) || "";
+}
+
+function setBaseRev(rev) {
+  if (rev) localStorage.setItem(LS_BASEREV, rev);
+  else localStorage.removeItem(LS_BASEREV);
+}
+
 function mutate(fn) {
   fn(data);
   data.updatedAt = new Date().toISOString();
@@ -106,9 +122,11 @@ function mutate(fn) {
 }
 
 // ---------- appearance (theme / layout / density / mode) ----------
-// All four are per-device preferences (localStorage), not part of the synced
-// blob. The inline head script migrates legacy combined values (bold-tight,
-// trello-h) before this code runs, so plain reads are safe here.
+// Style settings live in localStorage per device by default, but the "Sync
+// style across devices" toggle mirrors them through the synced blob
+// (data.style) — see the style-sync section below. Light/dark mode always
+// stays per-device. The inline head script migrates legacy combined values
+// (bold-tight, trello-h) before this code runs, so plain reads are safe here.
 
 const lightQuery = matchMedia("(prefers-color-scheme: light)");
 const MODES = ["system", "light", "dark"];
@@ -145,7 +163,70 @@ function applyAppearance() {
 
 document.getElementById("style-btn").addEventListener("click", () => {
   loadDefaultBtn.disabled = !data.defaultView;
+  styleSyncCheck.checked = styleSyncOn();
   styleDialog.showModal();
+});
+
+// ---------- style sync ----------
+// Opt-in per device: when on, the five style settings (theme, layout, density,
+// add-link, search bar) mirror data.style in the synced blob. Any change made
+// while on publishes; any pull that brings a different data.style applies it.
+// Turning it on adopts the existing synced style if there is one, otherwise
+// seeds it from this device. Mode (light/dark/system) stays per-device.
+
+function styleSyncOn() {
+  return localStorage.getItem(LS_STYLESYNC) === "1";
+}
+
+function currentStyle() {
+  return {
+    theme: localStorage.getItem(LS_THEME) || "bold",
+    layout: localStorage.getItem(LS_LAYOUT) || "vertical",
+    density: localStorage.getItem(LS_DENSITY) || "comfortable",
+    addLink: localStorage.getItem(LS_ADDLINK) !== "hidden",
+    search: localStorage.getItem(LS_SEARCH) !== "hidden",
+  };
+}
+
+function writeStyleToLocal(s) {
+  if (s.theme) localStorage.setItem(LS_THEME, s.theme);
+  if (s.layout) localStorage.setItem(LS_LAYOUT, s.layout);
+  if (s.density) localStorage.setItem(LS_DENSITY, s.density);
+  localStorage.setItem(LS_ADDLINK, s.addLink === false ? "hidden" : "shown");
+  localStorage.setItem(LS_SEARCH, s.search === false ? "hidden" : "shown");
+}
+
+function publishStyle() {
+  if (!styleSyncOn()) return;
+  mutate((d) => { d.style = currentStyle(); });
+}
+
+function applySyncedStyle() {
+  if (!styleSyncOn() || !data.style) return;
+  if (JSON.stringify(data.style) === JSON.stringify(currentStyle())) return;
+  writeStyleToLocal(data.style);
+  applyFilterOnSearchHide();
+  applyAppearance(); // also refreshes the dialog controls if it's open
+}
+
+// Hiding the search bar clears any active filter so no links stay invisibly
+// filtered out (same rule as the manual toggle below).
+function applyFilterOnSearchHide() {
+  if (localStorage.getItem(LS_SEARCH) === "hidden" && filterInput.value) {
+    filterInput.value = "";
+    applyFilter();
+  }
+}
+
+styleSyncCheck.addEventListener("change", () => {
+  if (styleSyncCheck.checked) {
+    localStorage.setItem(LS_STYLESYNC, "1");
+    if (data.style) applySyncedStyle();
+    else publishStyle();
+  } else {
+    localStorage.removeItem(LS_STYLESYNC);
+  }
+  updateMomentum(); // the toggle also switches the photo pin/rotation scope
 });
 
 // ---------- default view ----------
@@ -255,18 +336,22 @@ window.addEventListener("scroll", closeMenus, true);
 themeSelect.addEventListener("change", () => {
   localStorage.setItem(LS_THEME, themeSelect.value);
   applyAppearance();
+  publishStyle();
 });
 layoutSelect.addEventListener("change", () => {
   localStorage.setItem(LS_LAYOUT, layoutSelect.value);
   applyAppearance();
+  publishStyle();
 });
 densitySelect.addEventListener("change", () => {
   localStorage.setItem(LS_DENSITY, densitySelect.value);
   applyAppearance();
+  publishStyle();
 });
 addLinkCheck.addEventListener("change", () => {
   localStorage.setItem(LS_ADDLINK, addLinkCheck.checked ? "shown" : "hidden");
   applyAppearance();
+  publishStyle();
 });
 
 modeToggle.addEventListener("click", () => {
@@ -285,6 +370,7 @@ searchToggle.addEventListener("click", () => {
     applyFilter();
   }
   applyAppearance();
+  publishStyle();
 });
 
 lightQuery.addEventListener("change", () => {
@@ -315,21 +401,20 @@ const momentumShuffle = document.getElementById("momentum-shuffle");
 const momentumPin = document.getElementById("momentum-pin");
 const momentumDialog = document.getElementById("momentum-dialog");
 const momentumThumbs = document.getElementById("momentum-thumbs");
-const momentumServerPinBtn = document.getElementById("momentum-server-pin");
 const momentumClockCheck = document.getElementById("momentum-show-clock");
 const momentumGreetingCheck = document.getElementById("momentum-show-greeting");
 const momentumQuoteEl = document.getElementById("momentum-quote");
 const momentumQuoteCheck = document.getElementById("momentum-show-quote");
 
-// Two layers of preference:
-// - Per-device (localStorage): { offset?, pinned?, showClock?, showGreeting? }.
-//   "offset" shifts which pool photo today lands on (set by shuffle, so the
-//   rotation carries on from the new photo tomorrow); "pinned" freezes an index.
-// - Synced (data.momentum): { pinned?, favorites? } keyed by the stable
-//   "photo-…" segment of the Unsplash URL (indices would break if the curated
-//   list is ever edited). A synced pin shows the same photo on every device;
-//   favorites, when any exist, become the rotation/shuffle pool everywhere.
-// Precedence: device pin > synced pin > rotation over the pool.
+// The photo choice (pin + rotation offset) follows the "Sync style across
+// devices" toggle: sync on reads/writes the synced blob (data.momentum, pin
+// keyed by the stable "photo-…" URL segment since indices would break if the
+// curated list is edited), so every device shows the same photo; sync off
+// reads/writes localStorage only. "offset" shifts which pool photo today lands
+// on (set by shuffle, so rotation carries on from the new photo tomorrow);
+// "pinned" freezes one photo. Favorites always sync — they're curation, like
+// the links — and when any exist they become the rotation/shuffle pool.
+// Clock/greeting/quote visibility stays per-device.
 function momentumPref() {
   try { return JSON.parse(localStorage.getItem(LS_MOMENTUM)) || {}; } catch { return {}; }
 }
@@ -361,30 +446,55 @@ function momentumPool() {
 
 function momentumIndex() {
   const n = MOMENTUM_PHOTOS.length;
+  const pool = momentumPool();
+  if (styleSyncOn()) {
+    const s = momentumSynced();
+    if (s.pinned) {
+      const i = MOMENTUM_PHOTOS.findIndex((u) => momentumPhotoId(u) === s.pinned);
+      if (i >= 0) return i;
+    }
+    return pool[(momentumDay() + (s.offset || 0)) % pool.length];
+  }
   const pref = momentumPref();
   if (Number.isInteger(pref.pinned)) return ((pref.pinned % n) + n) % n;
-  const sp = momentumSynced().pinned;
-  if (sp) {
-    const i = MOMENTUM_PHOTOS.findIndex((u) => momentumPhotoId(u) === sp);
-    if (i >= 0) return i;
-  }
-  const pool = momentumPool();
   return pool[(momentumDay() + (pref.offset || 0)) % pool.length];
 }
 
-// Show photo `next` on this device: pin it if any pin is active (a shuffle or
-// thumbnail click while pinned shouldn't silently unpin), otherwise fold it
-// into the rotation offset so daily changes continue from it.
+// The offset that makes today's rotation land on pool photo `next`, so daily
+// changes carry on from it tomorrow.
+function momentumOffsetFor(next) {
+  const pool = momentumPool();
+  const pos = Math.max(0, pool.indexOf(next));
+  return ((pos - momentumDay()) % pool.length + pool.length) % pool.length;
+}
+
+// Write the synced momentum object, dropping it entirely when back to defaults.
+function mutateMomentum(fn) {
+  mutate((d) => {
+    const m = d.momentum || (d.momentum = {});
+    fn(m);
+    if (!m.offset) delete m.offset; // 0 ≡ default rotation
+    if (!m.pinned && m.offset == null && !(Array.isArray(m.favorites) && m.favorites.length)) {
+      delete d.momentum;
+    }
+  });
+}
+
+// Show photo `next`: keep it pinned if a pin is active (a shuffle or thumbnail
+// click while pinned shouldn't silently unpin), otherwise fold it into the
+// rotation offset — in whichever scope the style-sync toggle selects.
 function momentumShow(next) {
-  const pref = momentumPref();
-  if (Number.isInteger(pref.pinned) || momentumSynced().pinned) {
-    pref.pinned = next;
+  if (styleSyncOn()) {
+    mutateMomentum((m) => {
+      if (m.pinned) m.pinned = momentumPhotoId(MOMENTUM_PHOTOS[next]);
+      else m.offset = momentumOffsetFor(next);
+    });
   } else {
-    const pool = momentumPool();
-    const pos = Math.max(0, pool.indexOf(next));
-    pref.offset = ((pos - momentumDay()) % pool.length + pool.length) % pool.length;
+    const pref = momentumPref();
+    if (Number.isInteger(pref.pinned)) pref.pinned = next;
+    else pref.offset = momentumOffsetFor(next);
+    saveMomentumPref(pref);
   }
-  saveMomentumPref(pref);
   updateMomentum();
 }
 
@@ -394,19 +504,29 @@ momentumShuffle.addEventListener("click", () => {
   momentumShow(choices[Math.floor(Math.random() * choices.length)]);
 });
 
+// Unpinning folds the pinned photo into the rotation offset so today's photo
+// doesn't change; daily rotation resumes tomorrow.
 momentumPin.addEventListener("click", () => {
-  const pref = momentumPref();
-  if (Number.isInteger(pref.pinned)) {
-    // Unpin without changing today's photo: fold the pinned photo into the
-    // rotation offset, so daily changes resume tomorrow.
-    const pool = momentumPool();
-    const pos = Math.max(0, pool.indexOf(pref.pinned));
-    pref.offset = ((pos - momentumDay()) % pool.length + pool.length) % pool.length;
-    delete pref.pinned;
+  const current = momentumIndex();
+  if (styleSyncOn()) {
+    mutateMomentum((m) => {
+      if (m.pinned) {
+        m.offset = momentumOffsetFor(current);
+        delete m.pinned;
+      } else {
+        m.pinned = momentumPhotoId(MOMENTUM_PHOTOS[current]);
+      }
+    });
   } else {
-    pref.pinned = momentumIndex();
+    const pref = momentumPref();
+    if (Number.isInteger(pref.pinned)) {
+      pref.offset = momentumOffsetFor(current);
+      delete pref.pinned;
+    } else {
+      pref.pinned = current;
+    }
+    saveMomentumPref(pref);
   }
-  saveMomentumPref(pref);
   updateMomentum();
 });
 
@@ -455,13 +575,6 @@ function refreshMomentumPanel() {
     momentumThumbs.appendChild(thumb);
   });
 
-  const currentId = momentumPhotoId(MOMENTUM_PHOTOS[current]);
-  const serverPinned = synced.pinned === currentId;
-  momentumServerPinBtn.textContent = serverPinned
-    ? "Unpin from every device"
-    : "Pin this photo on every device";
-  momentumServerPinBtn.classList.toggle("active", Boolean(synced.pinned));
-
   const pref = momentumPref();
   momentumClockCheck.checked = pref.showClock !== false;
   momentumGreetingCheck.checked = pref.showGreeting !== false;
@@ -471,22 +584,6 @@ function refreshMomentumPanel() {
 document.getElementById("momentum-settings").addEventListener("click", () => {
   refreshMomentumPanel();
   momentumDialog.showModal();
-});
-
-momentumServerPinBtn.addEventListener("click", () => {
-  const id = momentumPhotoId(MOMENTUM_PHOTOS[momentumIndex()]);
-  mutate((d) => {
-    const m = d.momentum || (d.momentum = {});
-    if (m.pinned === id) delete m.pinned;
-    else m.pinned = id;
-    if (!m.pinned && !(Array.isArray(m.favorites) && m.favorites.length)) delete d.momentum;
-  });
-  // A device pin would mask the synced pin here — clear it so the change shows.
-  const pref = momentumPref();
-  delete pref.pinned;
-  saveMomentumPref(pref);
-  updateMomentum();
-  refreshMomentumPanel();
 });
 
 // ----- daily quote -----
@@ -592,11 +689,13 @@ function updateMomentum() {
   document.body.style.setProperty("--momentum-image", `url("${url}")`);
 
   const pref = momentumPref();
-  const pinned = Number.isInteger(pref.pinned);
+  const synced = styleSyncOn();
+  const pinned = synced ? Boolean(momentumSynced().pinned) : Number.isInteger(pref.pinned);
+  const scope = synced ? "every device" : "this device";
   momentumPin.classList.toggle("active", pinned);
   momentumPin.title = pinned
-    ? "Background pinned on this device — click to resume rotation"
-    : "Pin this background on this device";
+    ? `Background pinned on ${scope} — click to resume rotation`
+    : `Pin this background on ${scope}`;
 
   momentumClock.hidden = pref.showClock === false;
   momentumGreeting.hidden = pref.showGreeting === false;
@@ -637,7 +736,29 @@ function schedulePush(interactive) {
   pushTimer = setTimeout(() => push(interactive), PUSH_DEBOUNCE_MS);
 }
 
-async function push(interactive) {
+// Union-by-id merge for when both sides changed. Local wins for anything that
+// exists on both sides (it's this window's current intent); groups/links that
+// only exist on the server (added in another window) are appended rather than
+// dropped. Tradeoff: a link deleted here while another window still had it can
+// come back once — deleting again sticks. That beats silently losing adds.
+function mergeData(local, server) {
+  const merged = structuredClone(local);
+  const groupsById = new Map(merged.groups.map((g) => [g.id, g]));
+  for (const sg of server.groups) {
+    const lg = groupsById.get(sg.id);
+    if (!lg) {
+      merged.groups.push(structuredClone(sg));
+      continue;
+    }
+    const linkIds = new Set(lg.links.map((l) => l.id));
+    for (const sl of sg.links) {
+      if (!linkIds.has(sl.id)) lg.links.push(structuredClone(sl));
+    }
+  }
+  return merged;
+}
+
+async function push(interactive, attempt = 0) {
   const secret = getSecret(interactive);
   if (!secret) return; // stay dirty; will retry on next user edit
 
@@ -647,6 +768,7 @@ async function push(interactive) {
       headers: {
         "Content-Type": "application/json",
         "X-Sync-Secret": secret,
+        "X-Base-Rev": getBaseRev(),
       },
       body: JSON.stringify(data),
     });
@@ -656,7 +778,24 @@ async function push(interactive) {
       syncStatus.title = "Wrong sync secret — edit anything to be re-prompted";
       return;
     }
+    if (res.status === 409) {
+      // Another window pushed since we last reconciled. Merge its copy into
+      // ours and retry on top of it.
+      if (attempt >= 3) throw new Error("sync conflict persisted after retries");
+      const server = await res.json();
+      if (server && Array.isArray(server.groups)) {
+        data = mergeData(data, server);
+        data.updatedAt = new Date().toISOString();
+        saveLocal();
+        setBaseRev(server.updatedAt || "");
+        render();
+        updateMomentum();
+        applySyncedStyle();
+      }
+      return push(interactive, attempt + 1);
+    }
     if (!res.ok) throw new Error("HTTP " + res.status);
+    setBaseRev(data.updatedAt || "");
     setDirty(false);
   } catch (err) {
     updateStatusDot("error");
@@ -664,7 +803,14 @@ async function push(interactive) {
   }
 }
 
+function anyDialogOpen() {
+  return Boolean(document.querySelector("dialog[open]"));
+}
+
+let pendingPull = false;
+
 async function pullAndReconcile() {
+  lastPullAt = Date.now();
   try {
     const res = await fetch(API, { cache: "no-store" });
     if (res.status === 404) {
@@ -680,18 +826,32 @@ async function pullAndReconcile() {
     const serverAt = server.updatedAt || "";
     const localAt = data.updatedAt || "";
     if (serverAt > localAt) {
-      if (isDirty()) {
-        // Both sides changed; newest wins (last-write-wins by design)
-        console.warn("startpage: server copy newer than dirty local copy — server wins");
+      // Don't yank the UI out from under an open edit dialog; re-pull on close.
+      if (anyDialogOpen()) {
+        pendingPull = true;
+        return;
       }
-      data = server;
-      saveLocal();
-      setDirty(false);
+      if (isDirty()) {
+        // Both sides changed: merge instead of letting either side clobber
+        data = mergeData(data, server);
+        data.updatedAt = new Date().toISOString();
+        saveLocal();
+        setBaseRev(serverAt);
+        schedulePush(false);
+      } else {
+        data = server;
+        saveLocal();
+        setBaseRev(serverAt);
+        setDirty(false);
+      }
       render();
       updateMomentum(); // synced momentum pin/favorites may have changed
+      applySyncedStyle();
     } else if (localAt > serverAt || isDirty()) {
+      setBaseRev(serverAt);
       schedulePush(false);
     } else {
+      setBaseRev(serverAt);
       setDirty(false);
     }
   } catch (err) {
@@ -700,18 +860,59 @@ async function pullAndReconcile() {
   }
 }
 
+// Re-pull whenever this window comes back into view, so a long-open tab
+// refreshes itself before you edit in it. Throttled since focus and
+// visibilitychange often fire together.
+let lastPullAt = 0;
+
+function pullIfStale() {
+  if (Date.now() - lastPullAt < 3000) return;
+  pullAndReconcile();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") pullIfStale();
+});
+window.addEventListener("focus", pullIfStale);
+
+// Same-profile windows share localStorage, so they can sync instantly through
+// the storage event without a network round-trip. (Other Chrome profiles have
+// separate localStorage and rely on the focus pull above.)
+window.addEventListener("storage", (e) => {
+  if (e.key !== LS_DATA || !e.newValue) return;
+  let incoming;
+  try { incoming = JSON.parse(e.newValue); } catch { return; }
+  if (!incoming || !Array.isArray(incoming.groups)) return;
+  if ((incoming.updatedAt || "") <= (data.updatedAt || "")) return;
+  if (anyDialogOpen()) {
+    pendingPull = true;
+    return;
+  }
+  data = incoming;
+  render();
+  updateMomentum();
+  applySyncedStyle();
+});
+
 // ---------- rendering ----------
 
 function uid(prefix) {
   return prefix + "-" + crypto.randomUUID().slice(0, 8);
 }
 
-function faviconUrl(url) {
+// The /api/icon resolver checks real HTTP statuses server-side (see
+// functions/api/icon.js); if it comes up empty, the browser itself tries the
+// site's /favicon.ico — that request carries the user's cookies and bot-wall
+// clearance, so it can succeed where server-side fetches are blocked.
+function faviconChain(url) {
   try {
-    const host = new URL(url).hostname;
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`;
+    const u = new URL(url);
+    return [
+      `/api/icon?url=${encodeURIComponent(url)}`,
+      `${u.origin}/favicon.ico`,
+    ];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -742,6 +943,30 @@ function renderGroup(group, gi) {
   name.title = "Click to rename";
   name.addEventListener("click", () => startRename(group, name));
   header.appendChild(name);
+
+  // The header is the drag handle for reordering whole groups — cards stay
+  // draggable inside without nested-target ambiguity.
+  header.draggable = true;
+  header.addEventListener("dragstart", (e) => {
+    if (e.target instanceof HTMLInputElement) {
+      e.preventDefault(); // renaming — leave text selection drags alone
+      return;
+    }
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", group.id);
+    const r = section.getBoundingClientRect();
+    e.dataTransfer.setDragImage(section, e.clientX - r.left, e.clientY - r.top);
+    section.classList.add("dragging");
+    setTimeout(() => {
+      if (groupDragState) section.classList.add("drag-hidden");
+    }, 0);
+    groupDragState = { groupId: group.id };
+  });
+  header.addEventListener("dragend", () => {
+    section.classList.remove("dragging", "drag-hidden");
+    groupDragState = null;
+    groupGhost.remove();
+  });
 
   const controls = document.createElement("div");
   controls.className = "group-controls";
@@ -798,13 +1023,18 @@ function renderCard(link, group) {
   if (link.icon && link.icon.glyph) {
     a.appendChild(glyphTile(link.icon));
   } else {
-    const icoUrl = faviconUrl(link.url);
-    if (icoUrl) {
+    const chain = faviconChain(link.url);
+    if (chain.length) {
       const img = document.createElement("img");
       img.className = "card-favicon";
-      img.src = icoUrl;
       img.alt = "";
-      img.addEventListener("error", () => img.replaceWith(letterTile(link.title)));
+      let step = 0;
+      img.addEventListener("error", () => {
+        step += 1;
+        if (step < chain.length) img.src = chain[step];
+        else img.replaceWith(letterTile(link.title));
+      });
+      img.src = chain[0];
       a.appendChild(img);
     } else {
       a.appendChild(letterTile(link.title));
@@ -1277,6 +1507,7 @@ function editRowValues(r) {
 }
 
 function editRowChanged(r) {
+  if (r.deleting) return true;
   const v = editRowValues(r);
   return v.title !== r.orig.title
     || v.url !== r.orig.url
@@ -1286,14 +1517,19 @@ function editRowChanged(r) {
 
 function editUpdateCount() {
   if (!editState) return;
-  let n = 0;
+  let edits = 0, dels = 0;
   for (const r of editState) {
     const changed = editRowChanged(r);
-    r.row.classList.toggle("edited", changed);
-    if (changed) n++;
+    r.row.classList.toggle("edited", changed && !r.deleting);
+    if (r.deleting) dels++;
+    else if (changed) edits++;
   }
-  editSubmit.disabled = n === 0;
-  editSubmit.textContent = n ? `Save ${n} change${n === 1 ? "" : "s"}` : "Save";
+  editSubmit.disabled = !edits && !dels;
+  const s = (n) => (n === 1 ? "" : "s");
+  if (edits && dels) editSubmit.textContent = `Save ${edits} change${s(edits)}, delete ${dels}`;
+  else if (dels) editSubmit.textContent = `Delete ${dels} link${s(dels)}`;
+  else if (edits) editSubmit.textContent = `Save ${edits} change${s(edits)}`;
+  else editSubmit.textContent = "Save";
 }
 
 document.getElementById("bulk-edit").addEventListener("click", () => {
@@ -1351,13 +1587,10 @@ document.getElementById("bulk-edit").addEventListener("click", () => {
       }
       groupSelect.value = group.id;
 
-      row.append(iconCell, titleInput, urlInput, groupSelect);
-      editRowsEl.appendChild(row);
-      headerEntry.rows.push(row);
-
-      editState.push({
+      const entry = {
         linkId: link.id,
         row,
+        deleting: false,
         orig: {
           title: link.title,
           url: link.url,
@@ -1367,7 +1600,19 @@ document.getElementById("bulk-edit").addEventListener("click", () => {
             : null,
         },
         titleInput, urlInput, glyphInput, colorInput, groupSelect,
-      });
+      };
+
+      const delBtn = iconBtn("✕", "Mark for deletion", () => {
+        entry.deleting = !entry.deleting;
+        row.classList.toggle("deleting", entry.deleting);
+        delBtn.title = entry.deleting ? "Keep this link" : "Mark for deletion";
+        editUpdateCount();
+      }, "edit-delete");
+
+      row.append(iconCell, titleInput, urlInput, groupSelect, delBtn);
+      editRowsEl.appendChild(row);
+      headerEntry.rows.push(row);
+      editState.push(entry);
     }
   }
 
@@ -1390,8 +1635,13 @@ editFilterInput.addEventListener("input", () => {
   }
 });
 
-editForm.addEventListener("submit", () => {
+editForm.addEventListener("submit", (e) => {
   const rows = editState;
+  const dels = rows.filter((r) => r.deleting).length;
+  if (dels && !confirm(`Delete ${dels} link${dels === 1 ? "" : "s"}?`)) {
+    e.preventDefault(); // keep the dialog open, marks intact
+    return;
+  }
   editState = null;
   if (!rows.some(editRowChanged)) return; // untouched — just close
 
@@ -1403,6 +1653,7 @@ editForm.addEventListener("submit", () => {
       for (const link of g.links) {
         const r = byId.get(link.id);
         if (!r) { keep.push(link); continue; }
+        if (r.deleting) continue; // marked ✕ — drop the link
         const v = editRowValues(r);
         Object.assign(link, { title: v.title, url: v.url });
         if (v.icon) link.icon = v.icon;
@@ -1481,6 +1732,77 @@ function positionDropGhost(cardsEl, x, y) {
   if (anchor === dropGhost || anchor === dropGhost.nextElementSibling) return;
   cardsEl.insertBefore(dropGhost, anchor);
 }
+
+// ---------- group reordering ----------
+
+let groupDragState = null; // { groupId }
+
+const groupGhost = document.createElement("div");
+groupGhost.className = "group-ghost";
+
+// How groups flow across the board, per the current layout: columns is a
+// sideways flex board, grid is CSS multi-columns (column-major: down each
+// column, then rightward), vertical and rows are plain stacks.
+function boardFlow() {
+  const s = getComputedStyle(board);
+  if (s.display === "flex") return "horizontal";
+  if (s.columnWidth !== "auto" || s.columnCount !== "auto") return "columns";
+  return "vertical";
+}
+
+// The group the ghost should sit before (null = append), same greedy
+// first-past-the-cursor test as findDropAnchor but along the board's flow.
+function findGroupAnchor(x, y) {
+  const flow = boardFlow();
+  for (const g of board.querySelectorAll(".group:not(.dragging)")) {
+    const r = g.getBoundingClientRect();
+    if (!r.width && !r.height) continue; // hidden (filtered out)
+    if (flow === "vertical") {
+      if (y < r.top + r.height / 2) return g;
+    } else if (flow === "horizontal") {
+      if (x < r.left + r.width / 2) return g;
+    } else if (x < r.left || (x <= r.right && y < r.top + r.height / 2)) {
+      // column-major: everything in a column right of the cursor comes later;
+      // within the cursor's own column, the usual midpoint test.
+      return g;
+    }
+  }
+  return null;
+}
+
+board.addEventListener("dragover", (e) => {
+  if (!groupDragState) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  const anchor = findGroupAnchor(e.clientX, e.clientY);
+  if (groupGhost.parentElement === board && groupGhost.nextElementSibling === anchor) return;
+  board.insertBefore(groupGhost, anchor);
+});
+
+board.addEventListener("dragleave", (e) => {
+  if (!groupDragState) return;
+  if (e.relatedTarget && board.contains(e.relatedTarget)) return;
+  groupGhost.remove();
+});
+
+board.addEventListener("drop", (e) => {
+  if (!groupDragState) return;
+  e.preventDefault();
+  let next = groupGhost.parentElement === board ? groupGhost.nextElementSibling : null;
+  if (next && next.classList.contains("dragging")) next = next.nextElementSibling;
+  const beforeGroupId = next && next.classList.contains("group") ? next.dataset.groupId : null;
+  const { groupId } = groupDragState;
+  groupGhost.remove();
+
+  mutate((d) => {
+    const i = d.groups.findIndex((g) => g.id === groupId);
+    if (i < 0) return;
+    const [g] = d.groups.splice(i, 1);
+    let j = beforeGroupId ? d.groups.findIndex((x) => x.id === beforeGroupId) : -1;
+    if (j < 0) j = d.groups.length;
+    d.groups.splice(j, 0, g);
+  });
+});
 
 // A drag from outside the page — a bookmark-bar entry, a link on another page,
 // the address bar's padlock — carries text/uri-list. Tabs themselves can't be
@@ -2112,6 +2434,17 @@ pickForm.querySelector('[data-action="cancel"]').addEventListener("click", () =>
 
 
 // ---------- init ----------
+
+// A newer copy that arrived while an edit dialog was open is fetched fresh
+// once the last dialog closes (see pendingPull in the sync section).
+for (const dlg of document.querySelectorAll("dialog")) {
+  dlg.addEventListener("close", () => {
+    if (pendingPull && !anyDialogOpen()) {
+      pendingPull = false;
+      pullAndReconcile();
+    }
+  });
+}
 
 applyAppearance();
 render();

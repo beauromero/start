@@ -33,6 +33,27 @@ export async function onRequestPut({ request, env }) {
     return json({ error: "expected { groups: [...] }" }, 400);
   }
 
+  // Optimistic concurrency: the client sends the updatedAt its copy was based
+  // on. If the stored blob has moved past that, reject with the current copy so
+  // the client can merge and retry instead of silently clobbering another
+  // window's changes. Header absent = legacy client = old unconditional write.
+  // (KV is eventually consistent, so this is best-effort, not a true CAS — but
+  // a single user hits the same edge PoP, where reads see their own writes.)
+  const baseRev = request.headers.get("X-Base-Rev");
+  if (baseRev !== null) {
+    const current = await env.LINKS.get(KV_KEY);
+    if (current !== null) {
+      let currentAt = "";
+      try { currentAt = JSON.parse(current).updatedAt || ""; } catch {}
+      if (currentAt !== baseRev) {
+        return new Response(current, {
+          status: 409,
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        });
+      }
+    }
+  }
+
   await env.LINKS.put(KV_KEY, JSON.stringify(data));
   return json({ ok: true, updatedAt: data.updatedAt ?? null });
 }
