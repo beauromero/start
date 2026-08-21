@@ -333,6 +333,48 @@ window/profile. Three fixes, layered:
   using the same greedy flow-aware anchor test as cards, extended with a column-major case
   for the grid layout's CSS multi-columns. `setDragImage(section)` shows the whole group
   while dragging; the source hides a frame later, same as cards.
+
+## Offline app shell (added 2026-08-21)
+
+- **Service-worker shell snapshots.** `public/sw.js` precaches the canonical `/` HTML, CSS,
+  and JavaScript, so opening a new tab is served locally and the full UI works without a
+  connection after one successful online visit. Pages redirects `/index.html` to `/`, so
+  the canonical URL is cached directly rather than relying on a cached redirect response.
+  The existing localStorage-first data flow supplies the links immediately.
+- **Atomic background refresh.** A refresh downloads the complete shell into a uniquely
+  named, immutable snapshot. Only after all files are stored and verified does one metadata
+  record make it active; the prior snapshot remains as a fallback until the next successful
+  refresh. An installing replacement reuses a valid snapshot without writing; only after it
+  becomes the sole active worker may it refresh or clean up, preventing worker generations
+  from racing over shared caches. If the active snapshot is damaged but the prior snapshot
+  is complete, installation preserves and reuses that fallback; metadata pointers are never
+  cleared before a replacement publishes successfully. Each cached HTML document rewrites
+  its CSS and JavaScript references with the snapshot id, so a refresh published between the
+  document and subresource requests cannot mix two releases. Retired immutable snapshots get
+  a ten-minute grace period measured from retirement for in-flight documents, then cleanup
+  bounds their lifetime. An
+  in-flight promise coalesces overlapping refreshes, and a persisted attempt timestamp
+  throttles both successful and failed refresh attempts to once every five minutes.
+- **Safe v2 migration.** The v3 caches use the disjoint `startpage3-` prefix. A still-active
+  v2 worker cleans every `startpage-` cache it does not recognize, so naming v3 caches under
+  that legacy prefix would let the outgoing worker delete an installing worker's snapshot.
+  Legacy caches are removed only after v3 activates and claims the clients.
+- **Runtime visual cache.** Google Fonts, favicons (`/api/icon` and direct image fallbacks),
+  and viewed Momentum photos are cached on first use, capped at 100 entries. A photo must
+  have loaded once before it is available offline; the page's built-in typeface and tile
+  fallbacks still work when an uncached visual is unavailable.
+- **Sync stays network-only.** `/api/links` is never intercepted. The client already treats
+  localStorage as the instant/offline copy, while a live GET is needed for multi-window and
+  multi-profile reconciliation; caching that response could make an old server blob look
+  authoritative. Offline writes remain dirty and an `online` event retries them as soon as
+  the browser reports connectivity again, even if the tab stayed focused.
+- **Worker freshness.** `public/_headers` makes `/sw.js` non-cacheable and registration uses
+  `updateViaCache: "none"`, so browsers reliably discover service-worker logic changes.
+- **Browser acceptance is executable.** `tests/offline.spec.mjs` uses a controllable local
+  origin to prove dead-origin new-tab/reload, snapshot-pinned updates, complete rollback from
+  a damaged active cache, a hostile legacy-worker migration, failed-refresh throttling, and
+  connectivity-return retry. It runs serially in Chromium so Cache Storage and service-worker
+  lifecycle assertions stay deterministic.
 - **HTML5 drag-and-drop, no library.** Insert position computed from pointer x/y against card
   midpoints; works across groups.
 - **Favicons via `/api/icon`** (see "Favicon resolver" above; originally bare

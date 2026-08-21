@@ -1,0 +1,15 @@
+{
+  "name": "startpage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A self-hosted, offline-capable new tab page backed by Cloudflare Pages and KV.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}

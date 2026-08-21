@@ -875,6 +875,16 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("focus", pullIfStale);
 
+// A failed offline edit stays marked dirty. Retry it as soon as the browser
+// reports connectivity again, even if this tab never lost focus; otherwise a
+// clean tab pulls immediately to reconcile changes made elsewhere.
+window.addEventListener("online", () => {
+  clearTimeout(pushTimer);
+  pushTimer = null;
+  if (isDirty()) push(false);
+  else pullAndReconcile();
+});
+
 // Same-profile windows share localStorage, so they can sync instantly through
 // the storage event without a network round-trip. (Other Chrome profiles have
 // separate localStorage and rely on the focus pull above.)
@@ -2434,6 +2444,16 @@ pickForm.querySelector('[data-action="cancel"]').addEventListener("click", () =>
 
 
 // ---------- init ----------
+
+// Cache the app shell and previously loaded visual assets so new tabs start
+// locally and the page remains usable offline. The worker refreshes the shell
+// periodically in the background; updateViaCache keeps checks for sw.js itself
+// from being satisfied by an older HTTP-cache entry.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch((error) => {
+    console.warn("startpage: service worker registration failed", error);
+  });
+}
 
 // A newer copy that arrived while an edit dialog was open is fetched fresh
 // once the last dialog closes (see pendingPull in the sync section).
