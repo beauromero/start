@@ -2,7 +2,7 @@
 
 A self-hosted new tab page. Groups of links, synced across every browser profile and
 device you use, served from Cloudflare Pages for free. No accounts, no framework, no
-build step — three static files and a pair of small serverless functions.
+build step — a small static app and a pair of serverless functions.
 
 ## Why
 
@@ -18,8 +18,10 @@ page, and edits made anywhere show up everywhere.
 - **Sync** across profiles/devices via Cloudflare KV — writes gated by a shared
   secret. Long-open windows re-sync on focus, saves are compare-and-swapped, and
   concurrent edits from different windows merge instead of clobbering each other
-- **Instant loads** — renders from a localStorage cache first, fetches KV in the
-  background; keeps working offline and pushes when it can
+- **Instant, offline-capable loads** — renders link data from localStorage and serves
+  the app shell, fonts, favicons, and previously viewed background photos from a
+  service-worker cache. It refreshes the shell and KV data in the background;
+  offline edits stay local and retry automatically when connectivity returns
 - **Themes** — Bold, Trello, Minimal, Editorial (serif), and Momentum (daily-rotating
   photo background with clock + greeting, plus a settings panel: shuffle or pin the
   photo, star favorite photos to rotate through just those, and show/hide the clock,
@@ -45,7 +47,7 @@ page, and edits made anywhere show up everywhere.
 
 ## How it works
 
-- `public/` — plain HTML/CSS/JS, no build step
+- `public/` — plain HTML/CSS/JS plus a service worker, no build step
 - `functions/api/links.js` — a Cloudflare Pages Function serving `GET`/`PUT /api/links`,
   backed by a KV namespace
 - One JSON blob holds everything; the client saves locally first and debounces a PUT.
@@ -131,6 +133,50 @@ SYNC_SECRET=dev-secret
 
 Redeploying after any change is just `npx wrangler pages deploy ./public`.
 
+## Offline behavior
+
+Open the site online once before relying on it offline. That first visit installs the
+service worker and saves a complete app-shell snapshot; later new tabs and reloads can
+start from that snapshot with link data from localStorage. Fonts, favicons, and Momentum
+photos become available offline after they have loaded successfully at least once.
+
+Edits made offline are saved locally and marked dirty. An open tab retries them when the
+browser reports that connectivity has returned. The sync API itself is always network-only,
+so a stale API response can never overwrite the local offline copy.
+
+The automated compatibility target is current Chromium. The implementation uses standard
+Service Worker and Cache APIs and is intended to work in current Firefox and Safari too,
+but those browsers are not yet in the regression suite.
+
+After a service-worker update, one reload may still show the previous complete snapshot
+while the replacement activates. If a browser is ever stuck on an old or broken worker,
+open its developer tools, unregister the worker under Application/Storage, and reload once
+while online. Unregistering the worker does not erase the links stored in localStorage.
+
+### Adding files to the offline shell
+
+The shell manifest is `SHELL_PATHS` near the top of `public/sw.js`. CSS and JavaScript
+listed there must use absolute references in `public/index.html` (for example,
+`/style.css`); the worker rewrites those references to immutable snapshot URLs. When
+adding another shell file, update both places and extend the offline tests if it affects
+startup. Runtime visuals belong in `cacheRuntimeAsset()` instead of the shell.
+
+## Tests
+
+The browser suite starts a deterministic local origin and then shuts it down completely.
+It covers offline new-tab/reload, release-consistent shell updates, rollback from a damaged
+cache, migration from a hostile legacy worker, failed-refresh throttling, and retrying an
+offline edit when connectivity returns.
+
+```sh
+npm ci
+npx playwright install chromium
+npm test
+```
+
+Test tooling is development-only; the deployed app remains plain HTML, CSS, and JavaScript
+with no build step.
+
 ## Security notes
 
 - Writes require the `X-Sync-Secret` header; reads (`GET /api/links`) are
@@ -142,4 +188,4 @@ Redeploying after any change is just `npx wrangler pages deploy ./public`.
 
 ## License
 
-MIT
+[MIT](LICENSE)
